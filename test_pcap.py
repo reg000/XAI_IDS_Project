@@ -1,42 +1,82 @@
 import os
-from scapy.all import rdpcap
+import sys
+from datetime import datetime
+from scapy.utils import PcapReader
+from scapy.layers.inet import IP
 from core.extractor import FeatureExtractor
 from core.ids_model import IDSModel
 
-# We will use your training CSV as a mock test for now if you don't have a PCAP.
-# Ideally, you will download a small sample PCAP file for this.
 def analyze_pcap(pcap_path):
     print(f"[*] Loading Network Traffic from: {pcap_path}")
     if not os.path.exists(pcap_path):
         print("[-] PCAP file not found. Please provide a valid .pcap file.")
         return
 
-    # 1. Initialize your custom modules
     extractor = FeatureExtractor()
     brain = IDSModel()
     
-    print("[*] Reading packets (This might take a moment)...")
-    packets = rdpcap(pcap_path)
-    
-    print(f"[*] Analyzing {len(packets)} packets...\n")
-    print("-" * 50)
-    
-    # 2. The Core Pipeline Loop
-    for i, pkt in enumerate(packets):
-        # Translate raw packet to math
-        features = extractor.extract_features(pkt)
-        
-        if features:
-            # Feed math to AI
-            verdict, confidence = brain.predict(features)
-            
-            # Print an alert if it's an attack, or just a status for normal traffic
-            if "ATTACK" in verdict:
-                print(f"[Packet {i}] 🚨 {verdict} | Confidence: {confidence:.2f}% | Dest Port: {features[' Destination Port']}")
+    # 1. TIME TRAVEL TARGET: 13:50:00 (5 minutes before Port Scans begin)
+    START_TIMESTAMP = datetime(2017, 7, 7, 13, 45, 0).timestamp()
 
-    print("-" * 50)
-    print("[+] PCAP Analysis Complete.")
+    print("[*] Streaming packets (Press Ctrl+C to stop)...")
+    print("-" * 85)
+    
+    normal_count = 0
+    attack_count = 0
+
+    try:
+        with PcapReader(pcap_path) as pcap_reader:
+            for i, pkt in enumerate(pcap_reader):
+                                
+                                # --- TIME SYNC FIX ---
+                # Subtract 8.5 hours (30,600 seconds) to align IST with Canada Time
+                pkt_time = float(pkt.time) - 30600
+                current_time = datetime.fromtimestamp(pkt_time).strftime('%H:%M:%S')    
+
+                # --- TIME TRAVEL SKIP ---
+                if pkt_time < START_TIMESTAMP:
+                    # Update the live clock every 100,000 packets during the fast skip
+                    if i % 100000 == 0:
+                        sys.stdout.write(f"\r[ |>>>| FAST-FORWARD] Skimming morning traffic... Current PCAP Time: {current_time} | Packets Skipped: {i}")
+                        sys.stdout.flush()
+                    continue
+
+                # --- LIVE UI STATUS BAR (Updates every 1000 packets to prevent lag) ---
+                if i % 1000 == 0:
+                    sys.stdout.write(f"\r[ |#| LIVE ANALYSIS] PCAP Time: {current_time} | Packets: {i} | Attacks: {attack_count}    ")
+                    sys.stdout.flush()
+
+                # --- EXTRACT & PREDICT ---
+                features = extractor.extract_features(pkt)
+                
+                if features:
+                    verdict, confidence = brain.predict(features)
+                    
+                    src_ip = pkt[IP].src if IP in pkt else "Unknown"
+                    dst_ip = pkt[IP].dst if IP in pkt else "Unknown"
+                    
+                    # --- VERIFICATION LOGGING ---
+                    if "ATTACK" in verdict:
+                        attack_count += 1
+                        # We print a \n first so it doesn't overwrite our live clock, 
+                        # pushing the alert up and keeping the clock at the bottom!
+                        print(f"\n[{current_time}] <!!!> ATTACK | Conf: {confidence:.1f}% | {src_ip} -> {dst_ip} | Port: {features[' Destination Port']}")
+                    else:
+                        normal_count += 1
+                        # Print a sample of NORMAL traffic to prove the AI isn't just blindly guessing
+                        if normal_count % 10000 == 0:
+                            print(f"\n[{current_time}] <-+-> NORMAL | Conf: {confidence:.1f}% | {src_ip} -> {dst_ip} | Port: {features[' Destination Port']}")
+
+    except KeyboardInterrupt:
+        print("\n\n[!] Analysis stopped by user.")
+    except Exception as e:
+        print(f"\n\n[-] Error: {e}")
+
+    print("\n" + "-" * 85)
+    print(f"[+] PCAP Analysis Complete.")
+    print(f"[+] Total Attacks Detected: {attack_count}")
+    print(f"[+] Total Normal Flows Processed (Post-Skip): {normal_count}")
 
 if __name__ == "__main__":
-    # You will need to place a sample .pcap file in your data folder
-    analyze_pcap("data/sample_scan.pcap")
+    pcap_file = "data/Friday-WorkingHours.pcap"
+    analyze_pcap(pcap_file)

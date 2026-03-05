@@ -36,7 +36,7 @@ class FeatureExtractor:
     def extract_features(self, packet):
         """
         Takes a raw Scapy packet, updates the flow math, 
-        and returns the 10 specific AI features.
+        and returns the 14 specific AI features (10 Original + 4 TCP Flags).
         """
         flow_info = self.get_flow_key(packet)
         if not flow_info:
@@ -57,7 +57,12 @@ class FeatureExtractor:
                 'bwd_len': 0,
                 'fwd_max': 0,
                 'bwd_max': 0,
-                'dst_port': key[3] # Destination Port is index 3 in our tuple
+                'dst_port': key[3], # Destination Port is index 3 in our tuple
+                # --- NEW: Initialize Flag Counters ---
+                'syn_count': 0,
+                'rst_count': 0,
+                'ack_count': 0,
+                'fin_count': 0
             }
 
         flow = self.active_flows[key]
@@ -71,6 +76,14 @@ class FeatureExtractor:
             flow['bwd_pkts'] += 1
             flow['bwd_len'] += payload_len
             flow['bwd_max'] = max(flow['bwd_max'], payload_len)
+
+        # --- NEW: Count TCP Flags for the Flow ---
+        if TCP in packet:
+            flags = packet[TCP].flags
+            if 'S' in flags: flow['syn_count'] += 1  # SYN (Start/Stealth)
+            if 'R' in flags: flow['rst_count'] += 1  # RST (Reset/Blocked)
+            if 'A' in flags: flow['ack_count'] += 1  # ACK (Acknowledge)
+            if 'F' in flags: flow['fin_count'] += 1  # FIN (Finish)
 
         # 3. Time Calculations
         flow['last_time'] = timestamp
@@ -86,6 +99,7 @@ class FeatureExtractor:
 
         # 4. Final Feature Dictionary (Notice the exact spacing to match CIC-IDS2017!)
         features = {
+            # Original 10 Features
             ' Destination Port': float(flow['dst_port']),
             ' Flow Duration': float(duration_micro),
             ' Total Fwd Packets': float(flow['fwd_pkts']),
@@ -95,7 +109,13 @@ class FeatureExtractor:
             ' Fwd Packet Length Max': float(flow['fwd_max']),
             ' Bwd Packet Length Max': float(flow['bwd_max']),
             ' Flow IAT Mean': float(duration_micro / safe_pkts_minus_one),
-            ' Flow Packets/s': float(total_pkts / safe_duration_sec)
+            ' Flow Packets/s': float(total_pkts / safe_duration_sec),
+            
+            # --- NEW: The 4 TCP Flag Features ---
+            ' SYN Flag Count': float(flow['syn_count']),
+            ' RST Flag Count': float(flow['rst_count']),
+            ' ACK Flag Count': float(flow['ack_count']),
+            ' FIN Flag Count': float(flow['fin_count'])
         }
         
         return features

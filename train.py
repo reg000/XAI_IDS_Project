@@ -11,11 +11,13 @@ from sklearn.metrics import classification_report, accuracy_score
 DATA_PATH = 'data/PortScan.csv'
 MODEL_DIR = 'models/'
 
-# The "Lite 10" features we selected for live Scapy sniffing compatibility
+# The "Stealth-Aware 14" features we selected for live Scapy sniffing compatibility
 FEATURES = [
     ' Destination Port', ' Flow Duration', ' Total Fwd Packets', 
     ' Total Bwd Packets', 'Total Length of Fwd Packets', ' Total Length of Bwd Packets', 
-    ' Fwd Packet Length Max', ' Bwd Packet Length Max', ' Flow IAT Mean', ' Flow Packets/s'
+    ' Fwd Packet Length Max', ' Bwd Packet Length Max', ' Flow IAT Mean', ' Flow Packets/s',
+    # --- NEW: TCP Flags for Stealth Scan Detection ---
+    ' SYN Flag Count', ' RST Flag Count', ' ACK Flag Count', ' FIN Flag Count'
 ]
 TARGET = ' Label'
 
