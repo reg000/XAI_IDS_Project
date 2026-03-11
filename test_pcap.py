@@ -78,5 +78,5 @@ def analyze_pcap(pcap_path):
     print(f"[+] Total Normal Flows Processed (Post-Skip): {normal_count}")
 
 if __name__ == "__main__":
-    pcap_file = "data/Friday-WorkingHours.pcap"
+    pcap_file = "data/Friday-WorkingHours.pcap"  # Update this path to your actual PCAP file
     analyze_pcap(pcap_file)

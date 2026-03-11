@@ -7,8 +7,8 @@ from sklearn.metrics import classification_report, accuracy_score, confusion_mat
 
 # --- Configuration ---
 TEST_PATH = 'data/UNSW_NB15_testing-set.csv'
-MODEL_PATH = 'models/cat_hybrid_v2.cbm'
-FEATURE_NAMES_PATH = 'models/feature_names_v2.joblib'
+MODEL_PATH = 'models/cat_hybrid_v3_1.cbm'
+FEATURE_NAMES_PATH = 'models/feature_names_v3_1.joblib'
 
 def map_unsw_to_cic(filepath, features):
     """Replicates the mapping logic from train_hybrid.py for consistency."""

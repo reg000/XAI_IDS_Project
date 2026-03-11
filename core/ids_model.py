@@ -4,7 +4,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 
 class IDSModel:
-    def __init__(self, model_path='models/cat_evolution.cbm', features_path='models/feature_names.joblib'):
+    def __init__(self, model_path='models/cat_hybrid_v3_1.cbm', features_path='models/feature_names_v3_1.joblib'):
         """Loads the pre-trained AI and the required feature list into memory."""
         print("[*] Waking up the AI Engine...")
         
@@ -34,16 +34,31 @@ class IDSModel:
 
         # 2. Ask the CatBoost model for a prediction
         prediction = self.model.predict(df)[0]
-        
-        # 3. Get the confidence percentage (e.g., 99.8% sure it's an attack)
         probabilities = self.model.predict_proba(df)[0]
         confidence = probabilities.max() * 100
         
-        # 4. Format the output
+        # Extract features for heuristic checks
+        duration = float(feature_dict.get(' Flow Duration', 0))
+        port = float(feature_dict.get(' Destination Port', 0))
+
+        
+        # 3. Apply SOC Guardrails
         if prediction == 1:
-            return "🚨 ATTACK (PortScan)", confidence
-        else:
-            return "✅ NORMAL", confidence
+            # Rule 1: The "First Packet Bias" Filter
+            # Ignore attacks if the AI is less than 85% confident
+            if confidence < 85.0:
+                return "✅ NORMAL (Override - Low Conf)", confidence
+                
+            # Rule 2: The "Human / Legitimate App" Filter
+            # Ephemeral ports (>= 49152) and Web ports (80, 443) are standard for background traffic.
+            # If the flow duration is longer than a microsecond stealth-burst (>50,000us), it's legitimate.
+            if (port in [80.0, 443.0] or port >= 49152) and duration > 50000:
+                return "✅ NORMAL (Override - Duration)", confidence
+            
+            # For all other ports, or ultra-fast stealth scans, trust the AI
+            return "🚨 ATTACK", confidence
+            
+        return "✅ NORMAL", confidence
 
 # Quick test to ensure it loads without crashing if you run this file directly
 if __name__ == "__main__":

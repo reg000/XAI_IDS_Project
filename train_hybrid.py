@@ -9,6 +9,7 @@ from sklearn.metrics import classification_report, accuracy_score
 # --- Configuration ---
 CIC_PATH = 'data/PortScan.csv'
 UNSW_PATH = 'data/UNSW_NB15_training-set.csv'
+STEALTH_AUGMENT_PATH = 'data/stealth_augment.csv'  # <-- Added Stealth path
 MODEL_DIR = 'models/'
 
 # The exactly spaced "Stealth-Aware 14" features for Scapy compatibility
@@ -93,7 +94,6 @@ def map_unsw_to_cic(filepath):
     return new_df[FEATURES + ['Binary_Label']]
 
 def main():
-    # 1. Load Both Datasets
     try:
         df_cic = load_cic_data(CIC_PATH)
         df_unsw = map_unsw_to_cic(UNSW_PATH)
@@ -101,41 +101,52 @@ def main():
         print(f"[-] Error loading data: {e}")
         return
 
+    # --- THE V3 STEALTH INJECTION PHASE ---
+    print(f"\n[*] Injecting Targeted Stealth Vectors from {STEALTH_AUGMENT_PATH}...")
+    try:
+        df_stealth = pd.read_csv(STEALTH_AUGMENT_PATH)
+        df_stealth['Binary_Label'] = 1 # Force attack label
+        # Oversampling: multiply the 46 rows by 10 to increase their mathematical weight
+        df_stealth_boosted = pd.concat([df_stealth] * 10, ignore_index=True)
+    except Exception as e:
+        print(f"[-] Error loading stealth data: {e}. Make sure the harvester succeeded.")
+        return
+
     # 2. Combine Datasets
-    print("\n[*] Merging datasets into a single Hybrid matrix...")
-    df_combined = pd.concat([df_cic, df_unsw], ignore_index=True)
+    print("[*] Merging all datasets into the Final V3 matrix...")
+    df_combined = pd.concat([df_cic, df_unsw, df_stealth_boosted], ignore_index=True)
     
     X = df_combined[FEATURES]
     y = df_combined['Binary_Label']
 
     # 3. Split Data
-    print(f"[*] Total Hybrid Samples: {len(df_combined)}")
+    print(f"[*] Total V3 Samples: {len(df_combined)}")
     print("[*] Splitting data (80% Train / 20% Test)...")
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 4. Train Hybrid Model (V2)
-    print("\n[+] Training CatBoost Hybrid Model (V2)...")
+    # 4. Train Hybrid Model (V3)
+    print("\n[+] Training CatBoost Stealth-Aware Model (V3)...")
     cat_model = CatBoostClassifier(iterations=200, learning_rate=0.1, depth=6, verbose=0, random_seed=42)
     cat_model.fit(X_train, y_train)
     cat_preds = cat_model.predict(X_test)
 
     # 5. Evaluate
     print("\n" + "="*40)
-    print("📊 HYBRID MODEL (V2) RESULTS")
+    print("📊 STEALTH-AWARE MODEL (V3) RESULTS")
     print("="*40)
-    print(f"Hybrid Accuracy: {accuracy_score(y_test, cat_preds) * 100:.2f}%")
+    print(f"V3 Accuracy: {accuracy_score(y_test, cat_preds) * 100:.2f}%")
     print("\nClassification Report:")
     print(classification_report(y_test, cat_preds, target_names=['Normal', 'Attack']))
 
-    # 6. Save as V2 (Safe Revert Protocol)
-    print("\n[*] Saving V2 models to disk safely...")
+    # 6. Save as V3
+    print("\n[*] Saving V3 models to disk safely...")
     os.makedirs(MODEL_DIR, exist_ok=True)
     
-    # Save as v2 to prevent overwriting your original model
-    cat_model.save_model(os.path.join(MODEL_DIR, 'cat_hybrid_v2.cbm')) 
-    joblib.dump(FEATURES, os.path.join(MODEL_DIR, 'feature_names_v2.joblib'))
+    # Save as v3! 
+    cat_model.save_model(os.path.join(MODEL_DIR, 'cat_hybrid_v3_1.cbm')) 
+    joblib.dump(FEATURES, os.path.join(MODEL_DIR, 'feature_names_v3_1.joblib'))
     
-    print("[+] Hybrid Training Complete! V2 Model is ready for testing.")
+    print("[+] Training Complete! V3 Model is locked and loaded.")
 
 if __name__ == "__main__":
     main()
