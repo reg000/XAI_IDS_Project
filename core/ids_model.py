@@ -37,29 +37,37 @@ class IDSModel:
         probabilities = self.model.predict_proba(df)[0]
         confidence = probabilities.max() * 100
         
-        # Extract features for heuristic checks
+        # Extract time and context features
         duration = float(feature_dict.get(' Flow Duration', 0))
         port = float(feature_dict.get(' Destination Port', 0))
-
         
+        # Extract volume features safely (handling potential leading spaces from CIC-IDS format)
+        fwd_pkts = float(feature_dict.get(' Total Fwd Packets', feature_dict.get('Total Fwd Packets', 0)))
+        bwd_pkts = float(feature_dict.get(' Total Backward Packets', feature_dict.get('Total Backward Packets', 0)))
+        total_pkts = fwd_pkts + bwd_pkts
+
         # 3. Apply SOC Guardrails
         if prediction == 1:
             # Rule 1: The "First Packet Bias" Filter
-            # Ignore attacks if the AI is less than 85% confident
             if confidence < 85.0:
                 return "✅ NORMAL (Override - Low Conf)", confidence
                 
-            # Rule 2: The "Human / Legitimate App" Filter
-            # Ephemeral ports (>= 49152) and Web ports (80, 443) are standard for background traffic.
-            # If the flow duration is longer than a microsecond stealth-burst (>50,000us), it's legitimate.
-            if (port in [80.0, 443.0] or port >= 49152) and duration > 50000:
-                return "✅ NORMAL (Override - Duration)", confidence
+            # Define Enterprise & Web Ports (Added 88 Kerberos and 135 RPC)
+            enterprise_ports = [21.0, 22.0, 80.0, 88.0, 135.0, 139.0, 389.0, 443.0, 445.0, 465.0, 3268.0]
             
-            # For all other ports, or ultra-fast stealth scans, trust the AI
+            # Rule 2: The "Volume & Time" Filter
+            if port in enterprise_ports or port >= 49152:
+                # Lowered from > 4 to >= 3 to allow standard TCP 3-way handshakes to pass
+                if total_pkts >= 3:
+                    return "✅ NORMAL (Override - Volume)", confidence
+                # If it lasts longer than 50ms, it's a human/normal app
+                elif duration > 50000:
+                    return "✅ NORMAL (Override - Duration)", confidence
+            
+            # For all other ports, or ultra-fast, low-volume stealth scans, trust the AI
             return "🚨 ATTACK", confidence
             
         return "✅ NORMAL", confidence
 
-# Quick test to ensure it loads without crashing if you run this file directly
 if __name__ == "__main__":
     brain = IDSModel()
