@@ -28,13 +28,16 @@ def analyze_pcap(pcap_path):
         with PcapReader(pcap_path) as pcap_reader:
             for i, pkt in enumerate(pcap_reader):
                                 
-                                # --- TIME SYNC FIX ---
+                # --- TIME SYNC FIX ---
                 # Subtract 8.5 hours (30,600 seconds) to align IST with Canada Time
-                pkt_time = float(pkt.time) - 30600
-                current_time = datetime.fromtimestamp(pkt_time).strftime('%H:%M:%S')    
+                pkt_time_float = float(pkt.time) - 30600
+                current_time = datetime.fromtimestamp(pkt_time_float).strftime('%H:%M:%S')    
+                
+                # Create the legally accurate ISO timestamp for the XAI JSON Logger
+                forensic_timestamp = datetime.fromtimestamp(pkt_time_float).isoformat() + "Z"
 
                 # --- TIME TRAVEL SKIP ---
-                if pkt_time < START_TIMESTAMP:
+                if pkt_time_float < START_TIMESTAMP:
                     # Update the live clock every 100,000 packets during the fast skip
                     if i % 100000 == 0:
                         sys.stdout.write(f"\r[ |>>>| FAST-FORWARD] Skimming morning traffic... Current PCAP Time: {current_time} | Packets Skipped: {i}")
@@ -50,10 +53,13 @@ def analyze_pcap(pcap_path):
                 features = extractor.extract_features(pkt)
                 
                 if features:
-                    verdict, confidence = brain.predict(features)
-                    
                     src_ip = pkt[IP].src if IP in pkt else "Unknown"
                     dst_ip = pkt[IP].dst if IP in pkt else "Unknown"
+                    
+                    # Pass the historical forensic timestamp into the AI Engine
+                    verdict, confidence, xai_data = brain.predict(
+                        features, src_ip=src_ip, dst_ip=dst_ip, pkt_time=forensic_timestamp
+                    )
                     
                     # --- VERIFICATION LOGGING ---
                     if "ATTACK" in verdict:
@@ -79,5 +85,4 @@ def analyze_pcap(pcap_path):
 
 if __name__ == "__main__":
     pcap_file = "data/Friday-WorkingHours.pcap"  
-    #pcap_file = "data/bigNormal.pcapng"
     analyze_pcap(pcap_file)
