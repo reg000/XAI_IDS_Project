@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XAI Forensic Terminal</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+
+    body {
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      background: #eef2f7;
+      color: #1e293b;
+    }
+
+    /* HUD */
+    #hud {
+      background: #0f172a;
+      border-bottom: 2px solid #1e40af;
+      height: 54px;
+    }
+
+    /* Stat cards */
+    .stat-card {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 6px;
+      padding: 5px 16px;
+      text-align: center;
+      min-width: 130px;
+    }
+    .stat-value { font-size: 1.22rem; font-weight: 700; line-height: 1.1; }
+    .stat-label { font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+
+    /* Engine blink */
+    @keyframes blink-dot {
+      0%,100% { opacity:1; box-shadow: 0 0 5px #4ade80, 0 0 10px #4ade80; }
+      50%      { opacity:0.3; box-shadow: none; }
+    }
+    .engine-dot { width:8px; height:8px; border-radius:50%; background:#4ade80; animation: blink-dot 1.6s ease-in-out infinite; }
+
+    /* Panel cards */
+    .panel { background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; box-shadow:0 1px 4px rgba(15,23,42,0.07); }
+    .panel-header {
+      padding:9px 14px; border-bottom:1px solid #e2e8f0;
+      display:flex; align-items:center; justify-content:space-between;
+      background:#f8fafc; border-radius:10px 10px 0 0;
+    }
+    .panel-label { font-size:0.62rem; letter-spacing:0.16em; text-transform:uppercase; font-weight:600; }
+
+    /* Alert table */
+    #alert-thead th {
+      font-size:0.6rem; letter-spacing:0.14em; text-transform:uppercase;
+      color:#94a3b8; padding:8px 12px; white-space:nowrap;
+      background:#f8fafc; border-bottom:2px solid #e2e8f0;
+      position:sticky; top:0; z-index:5;
+    }
+    .alert-row { cursor:pointer; border-bottom:1px solid #f1f5f9; transition:background 0.1s; }
+    .alert-row td { padding:7px 12px; font-size:0.72rem; white-space:nowrap; color:#334155; }
+    .alert-row:hover { background:#f0f9ff; }
+    .alert-row.selected { background:#fef2f2 !important; border-left:3px solid #ef4444; }
+    .alert-row.selected td { color:#1e293b; }
+
+    @keyframes row-flash { 0%{background:#fee2e2} 100%{background:transparent} }
+    .flash-new { animation: row-flash 1.8s ease-out forwards; }
+
+    /* Gauge */
+    #gauge-arc { transition: stroke-dasharray 0.7s cubic-bezier(.4,0,.2,1), stroke 0.4s ease; }
+
+    /* SHAP bars (viz 1) */
+    .bar-track {
+      position:relative; height:24px;
+      background:#f1f5f9; border:1px solid #e2e8f0;
+      border-radius:4px; overflow:hidden;
+    }
+    .bar-fill {
+      position:absolute; top:4px; height:14px; border-radius:3px;
+      transition: width 0.55s cubic-bezier(.4,0,.2,1);
+    }
+    .bar-attack { background:linear-gradient(to right,#b91c1c,#f87171); left:50%; }
+    .bar-normal { background:linear-gradient(to left,#047857,#34d399); }
+    .center-line { position:absolute; left:50%; top:0; bottom:0; width:1px; background:#94a3b8; opacity:0.5; }
+
+    /* Waterfall (viz 2) */
+    .wf-row { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #f1f5f9; }
+    .wf-label { font-size:0.66rem; color:#475569; width:175px; flex-shrink:0; text-align:right; }
+    .wf-track { flex:1; height:20px; border-radius:3px; position:relative; overflow:hidden; background:#f8fafc; border:1px solid #e2e8f0; }
+    .wf-bar { position:absolute; height:100%; border-radius:2px; transition: all 0.45s ease; }
+    .wf-val { font-size:0.65rem; font-weight:600; width:58px; text-align:left; flex-shrink:0; }
+
+    /* Force plot (viz 4) */
+    .force-seg {
+      display:flex; align-items:center; justify-content:center;
+      overflow:hidden; min-width:0;
+    }
+    .force-seg span { font-size:9px; white-space:nowrap; overflow:hidden; padding:0 3px; }
+
+    /* Heatmap (viz 5) */
+    .hm-cell { font-size:0.62rem; padding:6px 8px; border-radius:5px; text-align:center; border:1px solid rgba(0,0,0,0.05); }
+    .hm-label { font-size:0.58rem; color:#475569; margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* Meta cells */
+    .meta-cell { background:#f8fafc; border:1px solid #e2e8f0; border-radius:7px; padding:8px 12px; }
+    .meta-key { font-size:0.55rem; letter-spacing:0.14em; text-transform:uppercase; color:#94a3b8; margin-bottom:3px; }
+    .meta-val { font-size:0.82rem; font-weight:600; color:#0f172a; word-break:break-all; }
+
+    /* Dropdown */
+    .viz-select {
+      font-family:'IBM Plex Mono',monospace; font-size:0.65rem;
+      background:#fff; border:1px solid #cbd5e1; border-radius:5px;
+      padding:4px 28px 4px 10px; color:#1e293b; cursor:pointer;
+      outline:none; appearance:none; -webkit-appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat; background-position:right 8px center;
+      transition:border-color 0.15s;
+    }
+    .viz-select:hover { border-color:#3b82f6; }
+    .viz-select:focus { border-color:#3b82f6; box-shadow:0 0 0 2px rgba(59,130,246,0.15); }
+
+    /* Scrollbars */
+    .scroll-zone { overflow-y:auto; }
+    .scroll-zone::-webkit-scrollbar { width:5px; }
+    .scroll-zone::-webkit-scrollbar-track { background:#f8fafc; }
+    .scroll-zone::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }
+    .scroll-zone::-webkit-scrollbar-thumb:hover { background:#94a3b8; }
+
+    /* Placeholder */
+    #autopsy-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#94a3b8; user-select:none; gap:8px; }
+    #autopsy-placeholder.hidden { display:none !important; }
+
+    /* Profile rows */
+    .profile-row { display:flex; justify-content:space-between; align-items:center; padding:5px 10px; border-radius:5px; font-size:0.65rem; border-bottom:1px solid #f1f5f9; }
+    .profile-row:hover { background:#f8fafc; }
+
+    /* Badges */
+    .badge { font-size:0.55rem; letter-spacing:0.1em; padding:2px 7px; border-radius:20px; font-weight:600; text-transform:uppercase; }
+    .badge-attack { background:#fee2e2; color:#b91c1c; }
+    .badge-normal { background:#dcfce7; color:#166534; }
+
+    /* Layout */
+    #main-content { display:flex; gap:10px; padding:10px; height:calc(100vh - 54px); }
+    #zone-alerts  { width:38%; display:flex; flex-direction:column; gap:8px; }
+    #zone-autopsy { width:62%; display:flex; flex-direction:column; gap:8px; }
+
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .spin { animation: spin 2s linear infinite; }
+  </style>
+</head>
+<body>
+
+<!-- ZONE 1: HUD -->
+<div id="hud" class="flex items-center justify-between px-5 relative z-10">
+  <div class="flex items-center gap-3">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="1.5">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      <path d="m9 12 2 2 4-4" stroke="#4ade80" stroke-width="2"/>
+    </svg>
+    <span class="text-white font-bold tracking-[0.15em] text-sm uppercase">XAI Forensic Terminal</span>
+    <span class="text-slate-500 text-[10px] tracking-widest">v3.1 · CatBoost + SHAP</span>
+  </div>
+
+  <div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+    <div class="engine-dot"></div>
+    <span class="text-green-400 text-[11px] font-semibold tracking-[0.18em] uppercase">Engine Online</span>
+    <span id="poll-indicator" class="text-slate-600 text-[10px] ml-3">—</span>
+  </div>
+
+  <div class="flex items-center gap-2">
+    <div class="stat-card">
+      <div id="stat-total" class="stat-value text-red-400">—</div>
+      <div class="stat-label">Total Alerts</div>
+    </div>
+    <div class="stat-card">
+      <div id="stat-conf" class="stat-value text-amber-400">—</div>
+      <div class="stat-label">Peak Confidence</div>
+    </div>
+    <div class="stat-card">
+      <div id="stat-port" class="stat-value text-sky-400">—</div>
+      <div class="stat-label">Top Target Port</div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div id="main-content">
+
+  <!-- ZONE 2: Alert Feed -->
+  <div id="zone-alerts">
+    <div class="panel flex-shrink-0">
+      <div class="panel-header">
+        <div class="flex items-center gap-2">
+          <svg class="spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+          <span class="panel-label text-blue-600">Live Alert Feed</span>
+        </div>
+        <span id="feed-count" class="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">0 events</span>
+      </div>
+    </div>
+
+    <div class="panel flex-1 overflow-hidden flex flex-col">
+      <table class="w-full border-collapse">
+        <thead id="alert-thead">
+          <tr>
+            <th class="text-left">Time</th>
+            <th class="text-left">Source IP</th>
+            <th class="text-left">Port</th>
+            <th class="text-right">Confidence</th>
+          </tr>
+        </thead>
+      </table>
+      <div class="scroll-zone flex-1">
+        <table class="w-full border-collapse">
+          <tbody id="alert-tbody"></tbody>
+        </table>
+        <div id="empty-state" class="hidden text-center py-16 text-slate-300 text-xs tracking-widest">
+          <div class="text-4xl mb-3 opacity-30">◉</div>NO ALERTS LOGGED YET
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ZONE 3: Forensic Autopsy -->
+  <div id="zone-autopsy">
+
+    <!-- Autopsy header with viz dropdown -->
+    <div class="panel flex-shrink-0">
+      <div class="panel-header">
+        <div class="flex items-center gap-2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <span class="panel-label text-red-500">Forensic Autopsy</span>
+          <span id="autopsy-ts" class="text-[10px] text-slate-400 ml-2 font-normal normal-case">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-slate-400 tracking-wider uppercase">Visualization:</span>
+          <select id="viz-mode" class="viz-select" onchange="switchViz(this.value)">
+            <option value="bars">① Horizontal Bars (SHAP)</option>
+            <option value="waterfall">② Waterfall Chart</option>
+            <option value="radar">③ Radar / Spider</option>
+            <option value="force">④ Force Plot</option>
+            <option value="heatmap">⑤ Feature Heatmap</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Autopsy body -->
+    <div class="panel flex-1 overflow-hidden relative flex flex-col">
+
+      <!-- Placeholder -->
+      <div id="autopsy-placeholder">
+        <div style="font-size:3rem;opacity:0.18">⬡</div>
+        <p class="text-sm tracking-[0.2em] uppercase">Select an alert to inspect</p>
+        <p class="text-xs opacity-50 mt-1">Click any row in the live feed</p>
+      </div>
+
+      <!-- Detail view -->
+      <div id="autopsy-detail" class="hidden flex flex-col h-full">
+
+        <!-- Metadata + Gauge row -->
+        <div class="flex gap-3 p-3 flex-shrink-0 border-b border-slate-100">
+          <div class="flex-1 grid grid-cols-2 gap-2">
+            <div class="meta-cell">
+              <div class="meta-key">Source IP</div>
+              <div id="d-src-ip" class="meta-val text-red-600">—</div>
+            </div>
+            <div class="meta-cell">
+              <div class="meta-key">Destination IP</div>
+              <div id="d-dst-ip" class="meta-val">—</div>
+            </div>
+            <div class="meta-cell">
+              <div class="meta-key">Target Port</div>
+              <div id="d-port" class="meta-val text-blue-600">—</div>
+            </div>
+            <div class="meta-cell">
+              <div class="meta-key">Base Probability</div>
+              <div id="d-base" class="meta-val text-amber-600">—</div>
+            </div>
+          </div>
+
+          <!-- Confidence gauge -->
+          <div class="flex flex-col items-center justify-center flex-shrink-0 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" style="min-width:165px">
+            <div class="text-[9px] text-slate-400 tracking-[0.16em] uppercase mb-1">Threat Confidence</div>
+            <svg width="148" height="92" viewBox="0 0 200 120">
+              <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#e2e8f0" stroke-width="16" stroke-linecap="round"/>
+              <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#fde68a" stroke-width="16"
+                    stroke-linecap="round" stroke-dasharray="213.6 37.7" opacity="0.7"/>
+              <path id="gauge-arc" d="M 20 105 A 80 80 0 0 1 180 105"
+                    fill="none" stroke="#ef4444" stroke-width="16" stroke-linecap="round" stroke-dasharray="0 251.3"/>
+              <text id="gauge-score" x="100" y="95" text-anchor="middle"
+                    font-family="IBM Plex Mono,monospace" font-size="27" font-weight="700" fill="#0f172a">—</text>
+              <text x="100" y="113" text-anchor="middle"
+                    font-family="IBM Plex Mono,monospace" font-size="8" letter-spacing="3" fill="#94a3b8">CONFIDENCE</text>
+            </svg>
+            <div class="flex items-center gap-1 text-[9px] text-amber-600 -mt-1">
+              <span style="display:inline-block;width:10px;height:2px;background:#fbbf24;border-radius:1px"></span>
+              85% SOC threshold
+            </div>
+          </div>
+        </div>
+
+        <!-- Visualization area -->
+        <div id="viz-area" class="flex-1 p-3 scroll-zone min-h-0">
+
+          <!-- VIZ 1: Horizontal Bars -->
+          <div id="view-bars" class="flex flex-col h-full">
+            <div class="flex items-center justify-between mb-3">
+              <div class="text-[10px] text-slate-500 font-semibold tracking-widest uppercase">Top 3 SHAP Feature Drivers</div>
+              <div class="flex items-center gap-4 text-[10px]">
+                <span class="flex items-center gap-1 text-emerald-600">
+                  <span style="display:inline-block;width:14px;height:3px;background:linear-gradient(to left,#047857,#34d399);border-radius:1px"></span>← Normal
+                </span>
+                <span class="flex items-center gap-1 text-red-500">
+                  <span style="display:inline-block;width:14px;height:3px;background:linear-gradient(to right,#b91c1c,#f87171);border-radius:1px"></span>Attack →
+                </span>
+              </div>
+            </div>
+            <div id="shap-bars" class="flex flex-col gap-5"></div>
+          </div>
+
+          <!-- VIZ 2: Waterfall -->
+          <div id="view-waterfall" class="hidden flex flex-col">
+            <div class="text-[10px] text-slate-500 font-semibold tracking-widest uppercase mb-3">SHAP Waterfall — Cumulative Feature Contributions</div>
+            <div id="waterfall-chart" class="flex flex-col gap-1"></div>
+          </div>
+
+          <!-- VIZ 3: Radar -->
+          <div id="view-radar" class="hidden flex flex-col">
+            <div class="text-[10px] text-slate-500 font-semibold tracking-widest uppercase mb-2">Radar — Normalized Feature Profile vs SHAP Impact</div>
+            <div class="flex items-center justify-center" style="height:300px">
+              <canvas id="radar-canvas" style="max-width:340px;max-height:300px"></canvas>
+            </div>
+          </div>
+
+          <!-- VIZ 4: Force Plot -->
+          <div id="view-force" class="hidden flex flex-col">
+            <div class="text-[10px] text-slate-500 font-semibold tracking-widest uppercase mb-3">Force Plot — Feature Push/Pull from Base Value</div>
+            <div id="force-chart" class="flex flex-col justify-center"></div>
+          </div>
+
+          <!-- VIZ 5: Heatmap -->
+          <div id="view-heatmap" class="hidden flex flex-col">
+            <div class="text-[10px] text-slate-500 font-semibold tracking-widest uppercase mb-3">Feature Heatmap — Raw Value × SHAP Impact Intensity</div>
+            <div id="heatmap-chart"></div>
+          </div>
+
+        </div>
+
+        <!-- Profile accordion -->
+        <div class="border-t border-slate-100 flex-shrink-0">
+          <button onclick="toggleProfile()"
+            class="w-full flex items-center justify-between px-4 py-2 text-[10px] text-slate-500 hover:bg-slate-50 transition-colors tracking-[0.14em] uppercase">
+            <div class="flex items-center gap-2">
+              <span id="profile-chevron" class="text-slate-400">▶</span>
+              Full Feature Profile (all 14 features)
+            </div>
+            <span id="profile-badge" class="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">collapsed</span>
+          </button>
+          <div id="profile-grid" class="hidden px-4 pb-3 max-h-44 overflow-y-auto scroll-zone"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const seenKeys = new Set();
+let selectedKey  = null;
+let currentAlert = null;
+let currentViz   = 'bars';
+let radarChart   = null;
+
+const $ = id => document.getElementById(id);
+
+function escapeHtml(s) {
+  if (s == null) return '—';
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(String(s)));
+  return d.innerHTML;
+}
+function alertKey(a) { return `${a.timestamp}::${a.source_ip}::${a.dest_port}`; }
+function formatTime(iso) {
+  if (!iso) return '—';
+  const m = iso.match(/T(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : iso.slice(0,19);
+}
+function formatPort(raw) {
+  if (raw == null || raw === '') return '—';
+  try { return String(parseInt(parseFloat(raw))); } catch { return String(raw); }
+}
+function confColor(c) {
+  if (c >= 97) return '#dc2626'; if (c >= 90) return '#ef4444';
+  if (c >= 85) return '#f97316'; return '#d97706';
+}
+function gaugeColor(c) {
+  if (c >= 97) return '#dc2626'; if (c >= 90) return '#ef4444';
+  if (c >= 85) return '#f97316'; return '#d97706';
+}
+
+/* Stats */
+function updateStats(s) {
+  $('stat-total').textContent = s.total ?? '—';
+  $('stat-conf').textContent  = s.highest_confidence != null ? s.highest_confidence.toFixed(1)+'%' : '—';
+  $('stat-port').textContent  = s.most_targeted_port ?? '—';
+}
+
+/* Alert table */
+function updateTable(alerts) {
+  const tbody = $('alert-tbody');
+  if (!alerts || alerts.length === 0) {
+    $('empty-state').classList.remove('hidden');
+    $('feed-count').textContent = '0 events';
+    return;
+  }
+  $('empty-state').classList.add('hidden');
+  $('feed-count').textContent = `${alerts.length} event${alerts.length !== 1 ? 's' : ''}`;
+
+  let newCount = 0;
+  alerts.forEach(alert => {
+    const key = alertKey(alert);
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    newCount++;
+    const conf = parseFloat(alert.confidence_score ?? 0);
+    const tr   = document.createElement('tr');
+    tr.className = `alert-row flash-new${key === selectedKey ? ' selected' : ''}`;
+    tr.dataset.key = key;
+    tr.innerHTML = `
+      <td class="text-slate-500">${escapeHtml(formatTime(alert.timestamp))}</td>
+      <td class="font-medium text-red-500">${escapeHtml(alert.source_ip ?? '—')}</td>
+      <td class="text-blue-600">${escapeHtml(formatPort(alert.dest_port))}</td>
+      <td class="text-right font-bold tabular-nums" style="color:${confColor(conf)}">${conf.toFixed(1)}%</td>`;
+    tr.addEventListener('click', () => selectAlert(alert, tr));
+    tbody.prepend(tr);
+  });
+
+  if (newCount > 0) {
+    $('poll-indicator').textContent = `+${newCount} new`;
+    setTimeout(() => { $('poll-indicator').textContent = '—'; }, 2500);
+  }
+}
+
+function selectAlert(alert, rowEl) {
+  document.querySelectorAll('.alert-row.selected').forEach(r => r.classList.remove('selected'));
+  rowEl.classList.add('selected');
+  selectedKey  = alertKey(alert);
+  currentAlert = alert;
+  showAutopsy(alert);
+}
+
+/* Autopsy */
+function showAutopsy(alert) {
+  $('autopsy-placeholder').classList.add('hidden');
+  $('autopsy-detail').classList.remove('hidden');
+  $('autopsy-ts').textContent = alert.timestamp
+    ? alert.timestamp.replace('T',' ').replace('Z',' UTC') : '—';
+  $('d-src-ip').textContent = alert.source_ip ?? '—';
+  $('d-dst-ip').textContent = alert.dest_ip   ?? '—';
+  $('d-port').textContent   = formatPort(alert.dest_port);
+
+  const xai = alert.xai_explanation ?? {};
+  const bp  = xai.base_model_probability;
+  $('d-base').textContent = bp != null ? (parseFloat(bp)*100).toFixed(2)+'%' : '—';
+
+  updateGauge(parseFloat(alert.confidence_score ?? 0));
+  renderProfileGrid(xai.full_feature_profile ?? {});
+  $('profile-grid').classList.add('hidden');
+  $('profile-chevron').textContent = '▶';
+  $('profile-badge').textContent   = 'collapsed';
+  renderCurrentViz(alert);
+}
+
+/* Gauge */
+function updateGauge(conf) {
+  const ARC = Math.PI * 80;
+  const f   = (Math.min(conf,100)/100) * ARC;
+  $('gauge-arc').setAttribute('stroke-dasharray', `${f.toFixed(2)} ${(ARC-f).toFixed(2)}`);
+  $('gauge-arc').setAttribute('stroke', gaugeColor(conf));
+  $('gauge-score').textContent = conf.toFixed(1)+'%';
+  $('gauge-score').setAttribute('fill', gaugeColor(conf));
+}
+
+/* Viz switch */
+const VIZ_IDS = ['bars','waterfall','radar','force','heatmap'];
+function switchViz(mode) {
+  currentViz = mode;
+  VIZ_IDS.forEach(id => $(`view-${id}`).classList.add('hidden'));
+  $(`view-${mode}`).classList.remove('hidden');
+  if (currentAlert) renderCurrentViz(currentAlert);
+}
+
+function renderCurrentViz(alert) {
+  const xai     = alert.xai_explanation ?? {};
+  const drivers = xai.top_3_drivers ?? [];
+  const profile = xai.full_feature_profile ?? {};
+  const conf    = parseFloat(alert.confidence_score ?? 0);
+  const base    = parseFloat(xai.base_model_probability ?? 0) * 100;
+
+  VIZ_IDS.forEach(id => $(`view-${id}`).classList.add('hidden'));
+  $(`view-${currentViz}`).classList.remove('hidden');
+
+  if (currentViz === 'bars')      renderBars(drivers);
+  if (currentViz === 'waterfall') renderWaterfall(drivers, base, conf);
+  if (currentViz === 'radar')     renderRadar(profile, drivers);
+  if (currentViz === 'force')     renderForce(drivers, base, conf);
+  if (currentViz === 'heatmap')   renderHeatmap(profile);
+}
+
+/* ── VIZ 1: Horizontal Bars ──────────────────────────────────────────── */
+function renderBars(drivers) {
+  if (!drivers.length) {
+    $('shap-bars').innerHTML = '<p class="text-xs text-slate-400 text-center py-8">No SHAP data.</p>'; return;
+  }
+  const maxAbs = Math.max(...drivers.map(d => Math.abs(parseFloat(d.shap_impact||0))), 0.001);
+  $('shap-bars').innerHTML = drivers.map((d,i) => {
+    const imp  = parseFloat(d.shap_impact||0);
+    const abs  = Math.abs(imp);
+    const isA  = imp >= 0;
+    const pct  = (abs/maxAbs)*48;
+    const sty  = isA ? `left:50%;width:${pct.toFixed(2)}%` : `left:calc(50% - ${pct.toFixed(2)}%);width:${pct.toFixed(2)}%`;
+    const col  = isA ? 'text-red-600' : 'text-emerald-700';
+    const bdg  = isA ? '<span class="badge badge-attack">Attack</span>' : '<span class="badge badge-normal">Normal</span>';
+    const rank = ['①','②','③'][i] ?? '';
+    return `
+      <div>
+        <div class="flex justify-between items-center mb-1.5">
+          <span class="text-sm text-slate-800 font-semibold">${rank} ${escapeHtml(d.feature)}</span>
+          <div class="flex items-center gap-2">${bdg}
+            <span class="text-xs font-bold ${col} tabular-nums">${escapeHtml(d.shap_impact)}</span>
+          </div>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill ${isA?'bar-attack':'bar-normal'}" style="${sty}"></div>
+          <div class="center-line"></div>
+        </div>
+        <div class="flex justify-between text-[9px] text-slate-400 mt-1">
+          <span>← NORMAL SIGNAL</span><span>ATTACK SIGNAL →</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* ── VIZ 2: Waterfall ────────────────────────────────────────────────── */
+function renderWaterfall(drivers, base, conf) {
+  const c = $('waterfall-chart');
+  if (!drivers.length) { c.innerHTML = '<p class="text-xs text-slate-400 text-center py-8">No SHAP data.</p>'; return; }
+
+  const items = [{ label:'Base probability', value:base, running:base, isBase:true }];
+  let run = base;
+  drivers.forEach(d => {
+    const delta = parseFloat(d.shap_impact||0) * 100;
+    const prev  = run;
+    run = Math.min(Math.max(run + delta, 0), 100);
+    items.push({ label:d.feature, value:delta, running:run, prev, isBase:false });
+  });
+  items.push({ label:'Final confidence', value:conf, running:conf, isFinal:true });
+
+  c.innerHTML = items.map(item => {
+    if (item.isBase) {
+      const w = (item.value/100*68).toFixed(2);
+      return `<div class="wf-row">
+        <span class="wf-label text-slate-500 italic">Base probability</span>
+        <div class="wf-track"><div class="wf-bar" style="left:0;width:${w}%;background:#fde68a"></div></div>
+        <span class="wf-val text-amber-600 font-bold">${item.value.toFixed(1)}%</span>
+      </div>`;
+    }
+    if (item.isFinal) {
+      const w = (item.value/100*68).toFixed(2);
+      return `<div class="wf-row" style="border-top:2px solid #e2e8f0;margin-top:6px;padding-top:6px">
+        <span class="wf-label font-bold text-slate-800">Final confidence</span>
+        <div class="wf-track"><div class="wf-bar" style="left:0;width:${w}%;background:${gaugeColor(item.value)}"></div></div>
+        <span class="wf-val font-bold" style="color:${gaugeColor(item.value)}">${item.value.toFixed(1)}%</span>
+      </div>`;
+    }
+    const isA  = item.value >= 0;
+    const pl   = (item.prev/100*68).toFixed(2);
+    const bw   = (Math.abs(item.value)/100*68).toFixed(2);
+    const left = isA ? pl : ((item.running/100*68)).toFixed(2);
+    const bg   = isA ? '#fca5a5' : '#6ee7b7';
+    const col  = isA ? 'text-red-500' : 'text-emerald-600';
+    const sign = isA ? '+' : '';
+    return `<div class="wf-row">
+      <span class="wf-label text-slate-600">${escapeHtml(item.label)}</span>
+      <div class="wf-track" style="position:relative">
+        <div style="position:absolute;left:${pl}%;top:0;bottom:0;width:1px;background:#cbd5e1"></div>
+        <div class="wf-bar" style="left:${left}%;width:${bw}%;background:${bg}"></div>
+      </div>
+      <span class="wf-val ${col} font-semibold tabular-nums">${sign}${item.value.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+}
+
+/* ── VIZ 3: Radar ────────────────────────────────────────────────────── */
+function renderRadar(profile, drivers) {
+  const canvas = $('radar-canvas');
+  if (radarChart) { radarChart.destroy(); radarChart = null; }
+
+  const entries = Object.entries(profile);
+  if (!entries.length) {
+    canvas.parentElement.innerHTML = '<p class="text-xs text-slate-400 text-center py-8">No profile data.</p>'; return;
+  }
+
+  const sel    = entries.slice(0, 10);
+  const labels = sel.map(([k]) => k.trim());
+  const raws   = sel.map(([,v]) => Math.abs(parseFloat(v.value||0)));
+  const maxRaw = Math.max(...raws, 1);
+  const normV  = raws.map(v => parseFloat((v/maxRaw).toFixed(3)));
+  const shapV  = sel.map(([,v]) => parseFloat(((parseFloat(v.shap_impact||0)+2)/4).toFixed(3)));
+
+  radarChart = new Chart(canvas, {
+    type:'radar',
+    data:{
+      labels,
+      datasets:[
+        { label:'Feature value (norm.)', data:normV, borderColor:'#3b82f6',
+          backgroundColor:'rgba(59,130,246,0.1)', borderWidth:2,
+          pointBackgroundColor:'#3b82f6', pointRadius:3 },
+        { label:'SHAP impact (scaled)', data:shapV, borderColor:'#ef4444',
+          backgroundColor:'rgba(239,68,68,0.08)', borderWidth:2, borderDash:[4,3],
+          pointBackgroundColor:'#ef4444', pointRadius:3 }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true,
+      plugins:{
+        legend:{ position:'bottom', labels:{ font:{family:'IBM Plex Mono',size:10}, color:'#64748b', boxWidth:12, padding:12 }},
+        tooltip:{ backgroundColor:'#1e293b', titleFont:{family:'IBM Plex Mono',size:10}, bodyFont:{family:'IBM Plex Mono',size:10} }
+      },
+      scales:{
+        r:{ min:0, max:1, ticks:{ display:false },
+          grid:{ color:'#e2e8f0' }, angleLines:{ color:'#e2e8f0' },
+          pointLabels:{ font:{family:'IBM Plex Mono',size:9}, color:'#64748b' } }
+      }
+    }
+  });
+}
+
+/* ── VIZ 4: Force Plot ───────────────────────────────────────────────── */
+function renderForce(drivers, base, conf) {
+  const c = $('force-chart');
+  if (!drivers.length) { c.innerHTML='<p class="text-xs text-slate-400 text-center py-8">No SHAP data.</p>'; return; }
+
+  const attacks = drivers.filter(d => parseFloat(d.shap_impact||0) >= 0);
+  const normals = drivers.filter(d => parseFloat(d.shap_impact||0)  < 0);
+  const total   = drivers.reduce((s,d) => s + Math.abs(parseFloat(d.shap_impact||0)), 0.001);
+
+  const seg = (d, isA) => {
+    const pct = (Math.abs(parseFloat(d.shap_impact||0))/total*42).toFixed(2);
+    const bg  = isA ? '#fee2e2' : '#dcfce7';
+    const bd  = isA ? '#fca5a5' : '#86efac';
+    const tc  = isA ? '#991b1b' : '#166534';
+    const lbl = d.feature.trim().split(' ').slice(-1)[0];
+    return `<div class="force-seg" style="width:${pct}%;background:${bg};border-${isA?'left':'right'}:1px solid ${bd}"><span style="color:${tc}">${lbl}</span></div>`;
+  };
+
+  c.innerHTML = `
+    <div class="px-2">
+      <div class="flex justify-between text-xs mb-2">
+        <span class="text-emerald-700 font-semibold">← Normal  ${(100-conf).toFixed(1)}%</span>
+        <span class="text-slate-400 text-[10px]">base ${base.toFixed(1)}%</span>
+        <span class="text-red-600 font-semibold">Attack ${conf.toFixed(1)}% →</span>
+      </div>
+      <div style="display:flex;height:40px;border-radius:7px;overflow:hidden;border:1.5px solid #e2e8f0;background:#f8fafc">
+        ${normals.map(d=>seg(d,false)).join('')}
+        <div style="flex:1;background:#fef9c3;display:flex;align-items:center;justify-content:center;border-left:1px solid #fde68a;border-right:1px solid #fde68a;min-width:40px">
+          <span style="font-size:10px;color:#92400e;font-weight:600">Base</span>
+        </div>
+        ${attacks.map(d=>seg(d,true)).join('')}
+      </div>
+      <div class="mt-4 flex flex-col gap-2">
+        <div class="text-[10px] text-slate-400 tracking-widest uppercase mb-1">Feature breakdown</div>
+        ${drivers.map(d => {
+          const v  = parseFloat(d.shap_impact||0);
+          const iA = v >= 0;
+          const col= iA ? '#dc2626' : '#059669';
+          const bg = iA ? '#fef2f2' : '#f0fdf4';
+          const bd = iA ? '#fca5a5' : '#86efac';
+          return `<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;background:${bg};border:1px solid ${bd};border-radius:6px">
+            <span style="flex:1;font-size:11px;color:#1e293b;font-weight:500">${escapeHtml(d.feature)}</span>
+            <span style="font-size:11px;font-weight:700;color:${col};font-family:IBM Plex Mono,monospace">${escapeHtml(d.shap_impact)}</span>
+            <span style="font-size:10px;color:${col}">${iA ? '→ Attack' : '← Normal'}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+/* ── VIZ 5: Heatmap ─────────────────────────────────────────────────── */
+function renderHeatmap(profile) {
+  const c = $('heatmap-chart');
+  const entries = Object.entries(profile);
+  if (!entries.length) { c.innerHTML='<p class="text-xs text-slate-400 text-center py-8">No profile data.</p>'; return; }
+
+  function cellColor(shap_str) {
+    const v  = parseFloat(shap_str||0);
+    const it = Math.min(Math.abs(v)/2, 1);
+    if (v > 0) {
+      return { bg:`rgb(254,${Math.round(226-it*150)},${Math.round(226-it*200)})`, txt: it>0.5?'#991b1b':'#dc2626' };
+    } else {
+      return { bg:`rgb(${Math.round(240-it*160)},253,${Math.round(244-it*80)})`, txt: it>0.5?'#065f46':'#059669' };
+    }
+  }
+
+  c.innerHTML = `
+    <div class="grid grid-cols-4 gap-2">
+      ${entries.map(([feat,info]) => {
+        const {bg,txt} = cellColor(info.shap_impact||'0');
+        const val = parseFloat(info.value||0).toFixed(2);
+        const imp = String(info.shap_impact||'—');
+        return `<div class="hm-cell" style="background:${bg}">
+          <div class="hm-label" title="${escapeHtml(feat)}">${escapeHtml(feat.trim())}</div>
+          <div style="font-size:0.78rem;font-weight:700;color:${txt}">${val}</div>
+          <div style="font-size:0.62rem;color:${txt};opacity:0.85">${escapeHtml(imp)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="flex items-center justify-center gap-3 mt-4 text-[10px] text-slate-500">
+      <div class="flex items-center gap-2">
+        <div style="width:50px;height:9px;border-radius:2px;background:linear-gradient(to right,#bbf7d0,#fecaca)"></div>
+        Normal ← intensity → Attack
+      </div>
+    </div>`;
+}
+
+/* ── Profile accordion ───────────────────────────────────────────────── */
+function renderProfileGrid(profile) {
+  const grid = $('profile-grid');
+  const ents = Object.entries(profile);
+  if (!ents.length) { grid.innerHTML='<p class="text-xs text-slate-400 py-2">No data.</p>'; return; }
+  grid.innerHTML = ents.map(([feat,info]) => {
+    const val = parseFloat(info.value||0).toFixed(2);
+    const imp = String(info.shap_impact||'—');
+    const isP = imp.startsWith('+');
+    const col = imp==='—' ? 'text-slate-400' : isP ? 'text-red-600' : 'text-emerald-700';
+    return `<div class="profile-row">
+      <span class="text-slate-700 truncate" title="${escapeHtml(feat)}" style="max-width:170px">${escapeHtml(feat.trim())}</span>
+      <div class="flex gap-3 tabular-nums flex-shrink-0">
+        <span class="text-slate-800 font-medium">${val}</span>
+        <span class="font-bold ${col} w-20 text-right">${escapeHtml(imp)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleProfile() {
+  const g = $('profile-grid');
+  const h = g.classList.toggle('hidden');
+  $('profile-chevron').textContent = h ? '▶' : '▼';
+  $('profile-badge').textContent   = h ? 'collapsed' : 'expanded';
+}
+
+/* ── Poll ────────────────────────────────────────────────────────────── */
+async function poll() {
+  try {
+    const res  = await fetch('/api/alerts');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    updateStats(data.stats  ?? {});
+    updateTable(data.alerts ?? []);
+  } catch (err) {
+    $('poll-indicator').textContent = '⚠ offline';
+    console.error('[XAI]', err);
+  }
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
