@@ -3,16 +3,31 @@ import json
 from datetime import datetime
 import shap
 
+# 1. Force Absolute Pathing based on the project root directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
+
 class XAIEngine:
-    def __init__(self, model, feature_names):
+    # 2. Add 'log_filename' so ids_model.py can pass the PCAP name down
+    def __init__(self, model, feature_names, log_filename="forensics_log.jsonl"):
         """Initializes the SHAP Explainer using the pre-loaded CatBoost model."""
         print("[*] Initializing SHAP TreeExplainer in dedicated module...")
         self.explainer = shap.TreeExplainer(model)
         self.features = feature_names
-        self.log_dir = "logs"
         
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+        # Ensure the absolute logs directory exists
+        if not os.path.exists(LOG_DIR):
+            os.makedirs(LOG_DIR)
+            
+        # 3. Dynamically set the absolute log path based on the PCAP name
+        self.log_path = os.path.join(LOG_DIR, log_filename)
+        
+        # Print a helpful status message based on whether it's a new or existing test
+        if os.path.exists(self.log_path):
+            print(f"[+] Mounting existing audit trail: {log_filename}")
+        else:
+            print(f"[+] Creating new audit trail: {log_filename}")
+            
         print("[+] XAI Forensic Module Online.")
 
     def log_attack(self, df, confidence, port, src_ip, dst_ip, pkt_time):
@@ -65,8 +80,8 @@ class XAIEngine:
                 }
             }
 
-            # 5. Write to File Asynchronously
-            with open(f"{self.log_dir}/forensics_log.jsonl", "a") as f:
+            # 5. Write to File Asynchronously using the DYNAMIC path
+            with open(self.log_path, "a") as f:
                 f.write(json.dumps(log_entry) + "\n")
 
             return log_entry

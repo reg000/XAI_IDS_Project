@@ -604,91 +604,22 @@ function showAutopsy(alert){
 }
 
 /* Narrative */
-/* Mathematical Expert System (Weighted SHAP Scoring) */
 function generateNarrative(alert){
-  const box = $('narrative-box');
-  const conf = parseFloat(alert.confidence_score ?? 0);
-  const xai = alert.xai_explanation ?? {};
-  const drv = xai.top_3_drivers ?? [];
-  const port = formatPort(alert.dest_port);
-  const src = alert.source_ip ?? 'unknown';
-  
+  const box=  $('narrative-box');
+  const conf= parseFloat(alert.confidence_score??0);
+  const xai=  alert.xai_explanation??{};
+  const drv=  xai.top_3_drivers??[];
+  const port= formatPort(alert.dest_port);
+  const src=  alert.source_ip??'unknown';
   if(!drv.length){ box.className=''; box.textContent='Insufficient SHAP data to generate narrative.'; return; }
-  
-  const top = drv[0];
-  const top2 = drv[1];
-  const sev = conf >= 95 ? 'Critical' : conf >= 88 ? 'High' : 'Medium';
-  box.className = 'threat';
-
-  // 1. Build the base facts
-  let text = `<strong style="color:var(--red);">[${sev} Threat]</strong> Flow from <strong>${escapeHtml(src)}</strong>`;
-  if (port !== '—') text += ` targeting port <strong style="color:var(--accent);">${escapeHtml(port)}</strong>`;
-  text += ` flagged with <strong>${conf.toFixed(1)}%</strong> confidence. `;
-  text += `Primary driver: <strong>${escapeHtml(top.feature)}</strong> (SHAP: ${escapeHtml(top.shap_impact)}). `;
-
-  // 2. MATHEMATICAL SCORING ENGINE
-  // We define "Attack Vectors". The numbers represent how strongly a feature correlates to an attack (0.0 to 1.0)
-  const attackSignatures = {
-      "SYN Flood / DoS": {
-          "syn flag count": 1.0, 
-          "flow packets/s": 0.8,
-          "total fwd packets": 0.5
-      },
-      "Web Exploit / Payload Injection": {
-          "fwd packet length max": 1.0, 
-          "total length of fwd packets": 0.9
-      },
-      "Active Reconnaissance / Port Scan": {
-          "destination port": 1.0, 
-          "flow iat mean": 0.7, 
-          "flow duration": 0.5
-      },
-      "Data Exfiltration / C2 Beaconing": {
-          "bwd packets": 0.9, 
-          "ack flag count": 0.8,
-          "total length of bwd packets": 1.0
-      }
-  };
-
-  // Filter to ONLY look at features pushing towards an attack
-  let attackDrivers = drv.filter(d => parseFloat(d.shap_impact) > 0);
-  
-  let bestAttackType = "Anomalous Network Physics (Unknown Signature)";
-  let highestScore = 0.0;
-
-  // Calculate the weighted mathematical score for every attack type
-  for (const [attackName, signature] of Object.entries(attackSignatures)) {
-      let currentScore = 0.0;
-      
-      // For every SHAP driver, multiply its SHAP impact by the signature weight
-      for (const driver of attackDrivers) {
-          let featureName = driver.feature.toLowerCase().trim();
-          let shapValue = parseFloat(driver.shap_impact);
-          
-          // If this feature exists in the current attack signature, add the weighted math to the score
-          for (const [sigFeature, weight] of Object.entries(signature)) {
-              if (featureName.includes(sigFeature)) {
-                  currentScore += (shapValue * weight);
-              }
-          }
-      }
-      
-      // Keep track of the highest scoring attack
-      if (currentScore > highestScore) {
-          highestScore = currentScore;
-          bestAttackType = attackName;
-      }
-  }
-
-  // 3. Output the mathematically deduced narrative
-  let analysis = "";
-  if (highestScore > 0) {
-      analysis = `Mathematical SHAP vector alignment indicates a high probability of <strong>${bestAttackType}</strong> (Signature Match Score: ${highestScore.toFixed(2)}).`;
-  } else {
-      analysis = `Feature combination indicates anomalous network physics deviating heavily from baseline traffic.`;
-  }
-
-  box.innerHTML = text + analysis;
+  const top=drv[0], top2=drv[1];
+  const sev=conf>=95?'Critical':conf>=88?'High':'Medium';
+  box.className='threat';
+  box.innerHTML=`<strong style="color:var(--red);">[${sev} Threat]</strong> Flow from <strong>${escapeHtml(src)}</strong>`
+    +(port!=='—'?` targeting port <strong style="color:var(--accent);">${escapeHtml(port)}</strong>`:'')
+    +` flagged with <strong>${conf.toFixed(1)}%</strong> confidence. Primary driver: <strong>${escapeHtml(top.feature)}</strong> (SHAP: ${escapeHtml(top.shap_impact)})`
+    +(top2?`, compounded by <strong>${escapeHtml(top2.feature)}</strong> (${escapeHtml(top2.shap_impact)})`:'')
+    +`. Pattern consistent with active reconnaissance or port-scan behaviour.`;
 }
 
 /* Gauge */
