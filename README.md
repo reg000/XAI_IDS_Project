@@ -1,9 +1,9 @@
-# XAI-SHAP Forensic Terminal 🛡️
+# XAI-SHAP Forensic Terminal
 **Live Network Intrusion Detection System using Explainable AI (XAI)**
 
-This project is a Master's level implementation of a real-time, AI-driven Security Operations Center (SOC) dashboard. It bridges the gap between "Black Box" machine learning and human-readable cybersecurity analysis by intercepting live network traffic, classifying threats using a CatBoost model, and mathematically explaining the AI's reasoning using SHAP (SHapley Additive exPlanations).
+This project is a implementation of a real-time, AI-driven Security Operations Center (SOC) dashboard. It bridges the gap between "Black Box" machine learning and human-readable cybersecurity analysis by intercepting live network traffic, classifying threats using a CatBoost model, and mathematically explaining the AI's reasoning using SHAP (SHapley Additive exPlanations).
 
-## 🚀 Key Features
+## Key Features
 
 * **Real-Time Packet Sniffing:** Utilizes `Scapy` to intercept and extract live network flow features.
 * **Optimized AI Engine:** Implements `CatBoost`, overcoming Random Forest's limitations with imbalanced network data to accurately classify complex attacks.
@@ -11,7 +11,7 @@ This project is a Master's level implementation of a real-time, AI-driven Securi
 * **Mathematical Expert System:** Replaces generic ML alerts with an intelligent, KNN-style weighted scoring matrix that deduces the exact attack vector (e.g., *Data Exfiltration*, *Port Scanning*, *DoS*) based on SHAP tensors.
 * **Interactive Forensic Dashboard:** A Flask-served, Tailwind-styled UI featuring live sparklines, SHAP waterfall charts, and normalized dual-radar analysis for instant SOC triage.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 **Backend & Data Pipeline**
 - Python 3.10+
@@ -30,7 +30,7 @@ This project is a Master's level implementation of a real-time, AI-driven Securi
 - TailwindCSS (Styling)
 - Chart.js (Data Visualization)
 
-## ⚙️ Installation & Usage
+## Installation & Usage
 
 1. **Clone the repository and install dependencies:**
    ```bash
