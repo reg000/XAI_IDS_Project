@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XAI Forensic Terminal · CatBoost + SHAP</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+
+    :root {
+      --bg:        #f0f4f8;
+      --surface:   #ffffff;
+      --border:    #dde3ec;
+      --border2:   #e8ecf2;
+      --text-1:    #0d1b2a;
+      --text-2:    #3d5166;
+      --text-3:    #7a8fa6;
+      --accent:    #1d4ed8;
+      --accent-lt: #eff6ff;
+      --red:       #dc2626;
+      --red-lt:    #fef2f2;
+      --red-mid:   #fca5a5;
+      --green:     #16a34a;
+      --green-lt:  #f0fdf4;
+      --amber:     #b45309;
+      --amber-lt:  #fffbeb;
+      --hud-h:     58px;
+      --case-h:    46px;
+    }
+
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text-1); }
+
+    /* HUD */
+    #hud {
+      height: var(--hud-h);
+      background: var(--surface);
+      border-bottom: 1.5px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 18px; position: relative; z-index: 20;
+      box-shadow: 0 2px 8px rgba(13,27,42,0.06);
+    }
+    .hud-title { font-family:'Syne',sans-serif; font-weight:800; font-size:0.92rem; letter-spacing:0.04em; color:var(--text-1); }
+    .hud-sub   { font-family:'DM Mono',monospace; font-size:0.58rem; color:var(--text-3); letter-spacing:0.1em; }
+
+    @keyframes pulse-dot {
+      0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(22,163,74,0.5); }
+      50%     { opacity:0.8; box-shadow:0 0 0 5px rgba(22,163,74,0); }
+    }
+    .pulse-dot { width:7px; height:7px; border-radius:50%; background:var(--green); animation:pulse-dot 2s ease-in-out infinite; }
+    .engine-pill {
+      display:flex; align-items:center; gap:6px;
+      background:var(--green-lt); border:1px solid #bbf7d0; border-radius:20px; padding:4px 12px;
+    }
+    .engine-label { font-family:'DM Mono',monospace; font-size:0.62rem; font-weight:500; color:var(--green); letter-spacing:0.1em; }
+
+    .hud-stat { display:flex; flex-direction:column; align-items:center; padding:4px 14px; border-left:1px solid var(--border); min-width:100px; }
+    .hud-val  { font-family:'DM Mono',monospace; font-size:1.1rem; font-weight:500; line-height:1.1; }
+    .hud-key  { font-size:0.55rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-3); margin-top:2px; }
+
+    #live-clock { font-family:'DM Mono',monospace; font-size:0.82rem; color:var(--text-1); letter-spacing:0.06em; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:4px 12px; min-width:120px; text-align:center; }
+    #clock-date { font-family:'DM Mono',monospace; font-size:0.54rem; color:var(--text-3); letter-spacing:0.1em; text-align:center; margin-top:2px; }
+
+    /* Case bar */
+    #case-bar {
+      height:var(--case-h); background:var(--surface); border-bottom:1px solid var(--border);
+      display:flex; align-items:center; padding:0 18px; gap:10px;
+      box-shadow:0 1px 4px rgba(13,27,42,0.04);
+    }
+    .case-label { font-size:0.58rem; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-3); white-space:nowrap; }
+    select.case-select {
+      font-family:'DM Mono',monospace; font-size:0.68rem; background:var(--bg); border:1.5px solid var(--border);
+      border-radius:6px; padding:5px 26px 5px 10px; color:var(--text-1); cursor:pointer; outline:none; appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237a8fa6' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat; background-position:right 8px center; width:260px;
+      transition:border-color 0.15s, box-shadow 0.15s;
+    }
+    select.case-select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(29,78,216,0.1); }
+
+    .session-pill { display:flex; align-items:center; gap:5px; background:var(--accent-lt); border:1px solid #bfdbfe; border-radius:6px; padding:4px 10px; font-family:'DM Mono',monospace; font-size:0.62rem; color:var(--accent); }
+    .divider { width:1px; height:22px; background:var(--border); flex-shrink:0; }
+    .kbd { display:inline-block; padding:1px 5px; border:1px solid var(--border); border-radius:3px; font-family:'DM Mono',monospace; font-size:0.58rem; color:var(--text-3); background:var(--bg); }
+
+    /* Buttons */
+    .btn { display:inline-flex; align-items:center; gap:5px; font-family:'DM Mono',monospace; font-size:0.6rem; font-weight:500; letter-spacing:0.05em; padding:5px 11px; border-radius:6px; border:1.5px solid var(--border); background:var(--surface); color:var(--text-2); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-lt); }
+    .btn-danger:hover { border-color:var(--red); color:var(--red); background:var(--red-lt); }
+
+    /* Main layout */
+    #main-content { display:flex; gap:10px; padding:10px; height:calc(100vh - var(--hud-h) - var(--case-h)); }
+    #zone-left  { width:37%; display:flex; flex-direction:column; gap:8px; }
+    #zone-right { width:63%; display:flex; flex-direction:column; gap:8px; }
+
+    /* Panel */
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 1px 4px rgba(13,27,42,0.06); }
+    .panel-hdr { padding:8px 14px; border-bottom:1px solid var(--border2); background:#f8fafc; border-radius:10px 10px 0 0; display:flex; align-items:center; justify-content:space-between; }
+    .panel-title { font-size:0.6rem; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:var(--text-2); display:flex; align-items:center; gap:6px; }
+
+    /* Sparkline */
+    #sparkline-wrap { display:flex; align-items:flex-end; gap:2px; height:28px; }
+    .spark-bar { flex:1; border-radius:2px 2px 0 0; background:var(--red-mid); opacity:0.45; transition:height 0.4s ease; min-height:2px; }
+    .spark-bar.latest { opacity:1; background:var(--red); }
+
+    /* Alert table */
+    .feed-th th { font-family:'DM Mono',monospace; font-size:0.57rem; letter-spacing:0.11em; text-transform:uppercase; color:var(--text-3); padding:7px 11px; background:#f8fafc; border-bottom:1.5px solid var(--border); position:sticky; top:0; z-index:5; white-space:nowrap; }
+    .alert-row { cursor:pointer; border-bottom:1px solid var(--border2); transition:background 0.1s; }
+    .alert-row td { padding:7px 11px; font-family:'DM Mono',monospace; font-size:0.68rem; color:var(--text-2); white-space:nowrap; }
+    .alert-row:hover { background:#f8fafc; }
+    .alert-row.selected { background:var(--red-lt) !important; border-left:3px solid var(--red); }
+    .alert-row.selected td { color:var(--text-1); }
+    @keyframes row-flash { 0%{background:#fee2e2} 100%{background:transparent} }
+    .flash-new { animation:row-flash 2s ease-out forwards; }
+
+    .sev { display:inline-block; font-size:0.5rem; padding:2px 5px; border-radius:4px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; }
+    .sev-crit { background:#fee2e2; color:#991b1b; }
+    .sev-high { background:#ffedd5; color:#9a3412; }
+    .sev-med  { background:#fef9c3; color:#854d0e; }
+
+    /* Meta */
+    .meta-cell { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 12px; }
+    .meta-key  { font-size:0.53rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-3); margin-bottom:3px; }
+    .meta-val  { font-family:'DM Mono',monospace; font-size:0.8rem; font-weight:500; color:var(--text-1); word-break:break-all; }
+
+    /* Gauge */
+    #gauge-arc { transition:stroke-dasharray 0.7s cubic-bezier(.4,0,.2,1), stroke 0.4s; }
+
+    /* Viz selector */
+    select.viz-select { font-family:'DM Mono',monospace; font-size:0.64rem; background:var(--bg); border:1.5px solid var(--border); border-radius:6px; padding:4px 24px 4px 8px; color:var(--text-1); cursor:pointer; outline:none; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237a8fa6' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 7px center; transition:border-color 0.15s; }
+    select.viz-select:focus { border-color:var(--accent); }
+
+    /* SHAP bars */
+    .bar-track { position:relative; height:22px; background:var(--bg); border:1px solid var(--border); border-radius:4px; overflow:hidden; }
+    .bar-fill  { position:absolute; top:4px; height:13px; border-radius:3px; transition:width 0.55s cubic-bezier(.4,0,.2,1); }
+    .bar-attack { background:linear-gradient(to right,#b91c1c,#f87171); left:50%; }
+    .bar-normal { background:linear-gradient(to left,#15803d,#4ade80); }
+    .center-line { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--border); }
+
+    /* Waterfall */
+    .wf-row { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--border2); }
+    .wf-label { font-family:'DM Mono',monospace; font-size:0.62rem; color:var(--text-2); width:170px; flex-shrink:0; text-align:right; }
+    .wf-track { flex:1; height:17px; border-radius:3px; position:relative; overflow:hidden; background:var(--bg); border:1px solid var(--border); }
+    .wf-bar   { position:absolute; height:100%; border-radius:2px; transition:all 0.45s ease; }
+    .wf-val   { font-family:'DM Mono',monospace; font-size:0.62rem; font-weight:600; width:56px; text-align:left; flex-shrink:0; }
+
+    /* Force plot */
+    .force-seg { display:flex; align-items:center; justify-content:center; overflow:hidden; min-width:0; }
+    .force-seg span { font-size:9px; white-space:nowrap; overflow:hidden; padding:0 3px; font-family:'DM Mono',monospace; }
+
+    /* Heatmap */
+    .hm-cell { font-size:0.6rem; padding:7px 8px; border-radius:6px; text-align:center; border:1px solid rgba(0,0,0,0.06); transition:transform 0.15s, box-shadow 0.15s; cursor:default; }
+    .hm-cell:hover { transform:scale(1.05); box-shadow:0 4px 12px rgba(13,27,42,0.12); z-index:2; position:relative; }
+    .hm-label { font-size:0.55rem; color:var(--text-2); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* Narrative */
+    #narrative-box { background:var(--accent-lt); border:1px solid #bfdbfe; border-radius:8px; padding:9px 14px; font-size:0.71rem; color:var(--text-1); line-height:1.65; }
+    #narrative-box.threat { background:var(--red-lt); border-color:var(--red-mid); }
+
+    /* Profile */
+    .profile-row { display:flex; justify-content:space-between; align-items:center; padding:5px 10px; border-radius:4px; font-size:0.63rem; border-bottom:1px solid var(--border2); transition:background 0.1s; }
+    .profile-row:hover { background:var(--bg); }
+
+    /* Scroll */
+    .scroll-zone { overflow-y:auto; }
+    .scroll-zone::-webkit-scrollbar { width:4px; }
+    .scroll-zone::-webkit-scrollbar-track { background:transparent; }
+    .scroll-zone::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+    .scroll-zone::-webkit-scrollbar-thumb:hover { background:#b0bec5; }
+
+    /* Placeholder */
+    #autopsy-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-3); user-select:none; gap:8px; }
+    #autopsy-placeholder.hidden { display:none !important; }
+
+    .viz-view.hidden { display:none !important; }
+
+    @keyframes spin { to{ transform:rotate(360deg); } }
+    .spin { animation:spin 2s linear infinite; }
+  </style>
+</head>
+<body>
+
+<!-- HUD -->
+<div id="hud">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#1d4ed8"/>
+      <path d="M16 6L26 11v8c0 5-4.5 8.5-10 10C10.5 27.5 6 24 6 19v-8L16 6z" fill="none" stroke="white" stroke-width="1.5"/>
+      <path d="M11 16l3 3 7-7" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <div class="hud-title">XAI Forensic Terminal</div>
+      <div class="hud-sub">CatBoost · SHAP · v3.2</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;">
+    <div class="engine-pill">
+      <div class="pulse-dot"></div>
+      <span class="engine-label">Engine Online</span>
+    </div>
+    <div class="divider"></div>
+    <div>
+      <div id="live-clock">—</div>
+      <div id="clock-date">—</div>
+    </div>
+    <div class="divider"></div>
+    <span id="poll-indicator" style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--text-3);">—</span>
+  </div>
+
+  <div style="display:flex;align-items:center;">
+    <div class="hud-stat">
+      <div id="stat-total" class="hud-val" style="color:var(--red);">—</div>
+      <div class="hud-key">Alerts</div>
+    </div>
+    <div class="hud-stat">
+      <div id="stat-conf" class="hud-val" style="color:var(--amber);">—</div>
+      <div class="hud-key">Peak Conf.</div>
+    </div>
+    <div class="hud-stat">
+      <div id="stat-port" class="hud-val" style="color:var(--accent);">—</div>
+      <div class="hud-key">Top Port</div>
+    </div>
+    <div class="hud-stat">
+      <div id="stat-rate" class="hud-val" style="color:var(--green);">0/m</div>
+      <div class="hud-key">Attack Rate</div>
+    </div>
+  </div>
+</div>
+
+<!-- Case bar -->
+<div id="case-bar">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2">
+    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+  </svg>
+  <span class="case-label">Active Case:</span>
+  <select id="caseSelect" class="case-select"><option value="">Loading cases...</option></select>
+
+  <div class="divider"></div>
+
+  <button class="btn" onclick="exportReport()">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>Export Report
+  </button>
+  <button class="btn btn-danger" onclick="clearFeed()">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    </svg>Clear
+  </button>
+
+  <div class="session-pill" style="margin-left:auto;">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+    Session: <span id="session-timer">00:00</span>
+  </div>
+  <div class="divider"></div>
+  <div style="display:flex;align-items:center;gap:5px;font-size:0.58rem;color:var(--text-3);">
+    <span class="kbd">↑↓</span>navigate&nbsp;
+    <span class="kbd">1–5</span>viz
+  </div>
+</div>
+
+<!-- Main -->
+<div id="main-content">
+
+  <!-- LEFT -->
+  <div id="zone-left">
+
+    <!-- Sparkline -->
+    <div class="panel flex-shrink-0" style="padding:10px 14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:0.57rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--text-3);">Attack Frequency · Last 20 Polls</span>
+        <span id="spark-label" style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--red);">live</span>
+      </div>
+      <div id="sparkline-wrap"></div>
+    </div>
+
+    <!-- Feed header -->
+    <div class="panel flex-shrink-0">
+      <div class="panel-hdr">
+        <div class="panel-title">
+          <svg class="spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          Live Alert Feed
+        </div>
+        <span id="feed-count" style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--text-3);background:var(--bg);border:1px solid var(--border);padding:2px 8px;border-radius:20px;">0 events</span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="panel flex-1 overflow-hidden flex flex-col">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead class="feed-th">
+          <tr>
+            <th style="text-align:left;">Time</th>
+            <th style="text-align:left;">Source IP</th>
+            <th style="text-align:left;">Port</th>
+            <th style="text-align:left;">Sev</th>
+            <th style="text-align:right;">Conf.</th>
+          </tr>
+        </thead>
+      </table>
+      <div class="scroll-zone flex-1">
+        <table style="width:100%;border-collapse:collapse;">
+          <tbody id="alert-tbody"></tbody>
+        </table>
+        <div id="empty-state" class="hidden" style="text-align:center;padding:40px 0;color:var(--text-3);font-size:0.7rem;letter-spacing:0.1em;">
+          <div style="font-size:2.5rem;opacity:0.18;margin-bottom:8px;">◎</div>NO ALERTS LOGGED YET
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT -->
+  <div id="zone-right">
+
+    <!-- Autopsy header bar -->
+    <div class="panel flex-shrink-0">
+      <div class="panel-hdr">
+        <div class="panel-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <span style="color:var(--red);">Forensic Autopsy</span>
+          <span id="autopsy-ts" style="font-size:0.58rem;color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:normal;margin-left:4px;">— select an alert</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:0.57rem;color:var(--text-3);letter-spacing:0.1em;text-transform:uppercase;">View:</span>
+          <select id="viz-mode" class="viz-select" onchange="switchViz(this.value)">
+            <option value="bars">① SHAP Bars</option>
+            <option value="waterfall">② Waterfall</option>
+            <option value="radar">③ Dual Radar</option>
+            <option value="force">④ Force Plot</option>
+            <option value="heatmap">⑤ Heatmap</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail card -->
+    <div class="panel flex-1 overflow-hidden relative flex flex-col">
+
+      <div id="autopsy-placeholder">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.18">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+        </svg>
+        <p style="font-size:0.78rem;letter-spacing:0.14em;text-transform:uppercase;">Select an alert to inspect</p>
+        <p style="font-size:0.64rem;opacity:0.5;margin-top:4px;">Use ↑↓ arrow keys to navigate</p>
+      </div>
+
+      <div id="autopsy-detail" class="hidden flex flex-col h-full">
+
+        <!-- Meta + Gauge -->
+        <div style="display:flex;gap:10px;padding:10px;flex-shrink:0;border-bottom:1px solid var(--border2);">
+          <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="meta-cell"><div class="meta-key">Source IP</div><div id="d-src-ip" class="meta-val" style="color:var(--red);">—</div></div>
+            <div class="meta-cell"><div class="meta-key">Destination IP</div><div id="d-dst-ip" class="meta-val">—</div></div>
+            <div class="meta-cell"><div class="meta-key">Target Port</div><div id="d-port" class="meta-val" style="color:var(--accent);">—</div></div>
+            <div class="meta-cell"><div class="meta-key">Base Probability</div><div id="d-base" class="meta-val" style="color:var(--amber);">—</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 14px;min-width:158px;">
+            <div style="font-size:0.53rem;color:var(--text-3);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:2px;">Threat Confidence</div>
+            <svg width="136" height="85" viewBox="0 0 200 120">
+              <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#e8ecf2" stroke-width="16" stroke-linecap="round"/>
+              <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#fde68a" stroke-width="16" stroke-linecap="round" stroke-dasharray="213.6 37.7" opacity="0.85"/>
+              <path id="gauge-arc" d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#dc2626" stroke-width="16" stroke-linecap="round" stroke-dasharray="0 251.3"/>
+              <text id="gauge-score" x="100" y="94" text-anchor="middle" font-family="DM Mono,monospace" font-size="26" font-weight="500" fill="#0d1b2a">—</text>
+              <text x="100" y="112" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="8" letter-spacing="3" fill="#7a8fa6">CONFIDENCE</text>
+            </svg>
+            <div style="font-size:0.57rem;color:var(--amber);display:flex;align-items:center;gap:4px;margin-top:-4px;">
+              <span style="display:inline-block;width:10px;height:2px;background:#fbbf24;border-radius:1px;"></span>85% SOC Threshold
+            </div>
+          </div>
+        </div>
+
+        <!-- Narrative -->
+        <div style="padding:8px 10px;flex-shrink:0;border-bottom:1px solid var(--border2);">
+          <div style="font-size:0.55rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px;">⚡ AI Threat Narrative</div>
+          <div id="narrative-box">Select an alert to generate a threat narrative.</div>
+        </div>
+
+        <!-- Viz area -->
+        <div id="viz-area" class="flex-1 scroll-zone" style="padding:10px;min-height:0;">
+
+          <!-- VIZ 1 -->
+          <div id="view-bars" class="viz-view">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <span style="font-size:0.57rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--text-3);">Top 3 SHAP Feature Drivers</span>
+              <div style="display:flex;gap:12px;font-size:0.62rem;">
+                <span style="display:flex;align-items:center;gap:4px;color:var(--green);"><span style="display:inline-block;width:14px;height:3px;background:linear-gradient(to left,#15803d,#4ade80);border-radius:1px;"></span>← Normal</span>
+                <span style="display:flex;align-items:center;gap:4px;color:var(--red);"><span style="display:inline-block;width:14px;height:3px;background:linear-gradient(to right,#b91c1c,#f87171);border-radius:1px;"></span>Attack →</span>
+              </div>
+            </div>
+            <div id="shap-bars" style="display:flex;flex-direction:column;gap:18px;"></div>
+          </div>
+
+          <!-- VIZ 2 -->
+          <div id="view-waterfall" class="viz-view hidden">
+            <div style="font-size:0.57rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--text-3);margin-bottom:10px;">SHAP Waterfall — Cumulative Feature Contributions</div>
+            <div id="waterfall-chart" style="display:flex;flex-direction:column;gap:3px;"></div>
+          </div>
+
+          <!-- VIZ 3 -->
+          <div id="view-radar" class="viz-view hidden" style="height:100%;">
+            <div style="display:flex;justify-content:space-between;font-size:0.57rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px;">
+              <span>Dual Radar Analysis</span>
+              <span style="color:var(--accent);">■ Raw Network Profile</span>
+              <span style="color:var(--red);">■ SHAP Threat Impact</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-around;height:calc(100% - 30px);gap:10px;">
+              <div style="flex:1;height:100%;max-height:260px;display:flex;align-items:center;justify-content:center;">
+                <canvas id="radar-canvas-value"></canvas>
+              </div>
+              <div style="width:1px;height:70%;background:var(--border);border-radius:2px;"></div>
+              <div style="flex:1;height:100%;max-height:260px;display:flex;align-items:center;justify-content:center;">
+                <canvas id="radar-canvas-impact"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- VIZ 4 -->
+          <div id="view-force" class="viz-view hidden">
+            <div style="font-size:0.57rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--text-3);margin-bottom:10px;">Force Plot — Feature Push/Pull from Base Value</div>
+            <div id="force-chart"></div>
+          </div>
+
+          <!-- VIZ 5 -->
+          <div id="view-heatmap" class="viz-view hidden">
+            <div style="font-size:0.57rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--text-3);margin-bottom:10px;">Feature Heatmap — Raw Value × SHAP Intensity</div>
+            <div id="heatmap-chart"></div>
+          </div>
+
+        </div>
+
+        <!-- Profile accordion -->
+        <div style="border-top:1px solid var(--border2);flex-shrink:0;">
+          <button onclick="toggleProfile()" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;font-size:0.6rem;color:var(--text-3);letter-spacing:0.12em;text-transform:uppercase;background:none;border:none;cursor:pointer;transition:background 0.1s;" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background='none'">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="profile-chevron">▶</span>
+              Full Feature Profile (all 14 features)
+            </div>
+            <span id="profile-badge" style="font-size:0.53rem;background:var(--bg);color:var(--text-3);border:1px solid var(--border);padding:2px 8px;border-radius:20px;">collapsed</span>
+          </button>
+          <div id="profile-grid" class="hidden scroll-zone" style="padding:0 14px 10px;max-height:160px;"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const seenKeys   = new Set();
+let selectedKey  = null;
+let currentAlert = null;
+let currentViz   = 'bars';
+let alertsArray  = [];
+let selectedIdx  = -1;
+let radarChartVal= null;
+let radarChartImp= null;
+let sessionStart = Date.now();
+let sparkData    = new Array(20).fill(0);
+let attackCounts = [];
+let pollCount    = 0;
+
+const $ = id => document.getElementById(id);
+
+/* Clock */
+function updateClock() {
+  const n  = new Date();
+  const pad = v => String(v).padStart(2,'0');
+  $('live-clock').textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
+  $('clock-date').textContent = n.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase();
+}
+setInterval(updateClock, 1000); updateClock();
+
+/* Session */
+function updateSession() {
+  const s = Math.floor((Date.now()-sessionStart)/1000);
+  $('session-timer').textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+setInterval(updateSession, 1000);
+
+/* Sparkline */
+function renderSparkline(n) {
+  sparkData.push(n); if (sparkData.length>20) sparkData.shift();
+  const max = Math.max(...sparkData,1);
+  $('sparkline-wrap').innerHTML = sparkData.map((v,i) => {
+    const h = Math.max((v/max)*100, v>0?14:3);
+    return `<div class="spark-bar${i===sparkData.length-1?' latest':''}" style="height:${h}%"></div>`;
+  }).join('');
+}
+renderSparkline(0);
+
+/* Helpers */
+function escapeHtml(s) {
+  if (s==null) return '—';
+  const d=document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML;
+}
+function alertKey(a)  { return `${a.timestamp}::${a.source_ip}::${a.dest_port}`; }
+function formatTime(iso) { if(!iso) return '—'; const m=iso.match(/T(\d{2}:\d{2}:\d{2})/); return m?m[1]:iso.slice(0,19); }
+function formatPort(raw) { if(raw==null||raw==='') return '—'; try{return String(parseInt(parseFloat(raw)));}catch{return String(raw);} }
+function confColor(c)  { return c>=97?'#991b1b':c>=92?'#dc2626':c>=87?'#ea580c':'#b45309'; }
+function gaugeColor(c) { return c>=97?'#dc2626':c>=90?'#ef4444':c>=85?'#f97316':'#f59e0b'; }
+function sevBadge(c)   { return c>=95?'<span class="sev sev-crit">CRIT</span>':c>=88?'<span class="sev sev-high">HIGH</span>':'<span class="sev sev-med">MED</span>'; }
+
+/* Stats */
+function updateStats(s) {
+  $('stat-total').textContent = s.total??'—';
+  $('stat-conf').textContent  = s.highest_confidence!=null?s.highest_confidence.toFixed(1)+'%':'—';
+  $('stat-port').textContent  = s.most_targeted_port??'—';
+}
+function updateRate(n) {
+  attackCounts.push(n); if(attackCounts.length>5) attackCounts.shift();
+  const avg=attackCounts.reduce((a,b)=>a+b,0)/attackCounts.length;
+  $('stat-rate').textContent = `${(avg*30).toFixed(1)}/m`;
+}
+
+/* Table */
+function updateTable(alerts) {
+  const tbody = $('alert-tbody');
+  if (!alerts||alerts.length===0) { $('empty-state').classList.remove('hidden'); $('feed-count').textContent='0 events'; renderSparkline(0); return; }
+  $('empty-state').classList.add('hidden');
+  $('feed-count').textContent = `${alerts.length} event${alerts.length!==1?'s':''}`;
+
+  let newCount=0;
+  alerts.forEach(a=>{ if(!seenKeys.has(alertKey(a))) alertsArray.unshift(a); });
+
+  alerts.forEach(alert=>{
+    const key=alertKey(alert);
+    if(seenKeys.has(key)) return;
+    seenKeys.add(key); newCount++;
+    const conf=parseFloat(alert.confidence_score??0);
+    const tr=document.createElement('tr');
+    tr.className=`alert-row flash-new${key===selectedKey?' selected':''}`;
+    tr.dataset.key=key;
+    tr.innerHTML=`
+      <td style="color:var(--text-3);">${escapeHtml(formatTime(alert.timestamp))}</td>
+      <td style="font-weight:500;color:var(--red);">${escapeHtml(alert.source_ip??'—')}</td>
+      <td style="color:var(--accent);">${escapeHtml(formatPort(alert.dest_port))}</td>
+      <td>${sevBadge(conf)}</td>
+      <td style="text-align:right;font-weight:600;font-family:'DM Mono',monospace;color:${confColor(conf)};">${conf.toFixed(1)}%</td>`;
+    tr.addEventListener('click',()=>{
+      selectedIdx=alertsArray.findIndex(a=>alertKey(a)===key);
+      selectAlert(alert,tr);
+    });
+    tbody.prepend(tr);
+  });
+
+  renderSparkline(newCount); updateRate(newCount);
+  if(newCount>0){
+    $('poll-indicator').textContent=`+${newCount} new · poll #${++pollCount}`;
+    setTimeout(()=>{ $('poll-indicator').textContent=`poll #${pollCount}`; },2500);
+  }
+}
+
+function selectAlert(alert,rowEl){
+  document.querySelectorAll('.alert-row.selected').forEach(r=>r.classList.remove('selected'));
+  if(rowEl) rowEl.classList.add('selected');
+  selectedKey=alertKey(alert); currentAlert=alert;
+  showAutopsy(alert);
+}
+
+/* Keyboard */
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='SELECT'||e.target.tagName==='INPUT') return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault(); if(!alertsArray.length) return;
+    selectedIdx=e.key==='ArrowDown'?Math.min(selectedIdx+1,alertsArray.length-1):Math.max(selectedIdx-1,0);
+    const a=alertsArray[selectedIdx], key=alertKey(a);
+    const row=document.querySelector(`tr[data-key="${CSS.escape(key)}"]`);
+    selectAlert(a,row); row?.scrollIntoView({block:'nearest'});
+  }
+  if(['1','2','3','4','5'].includes(e.key)){
+    const modes=['bars','waterfall','radar','force','heatmap'];
+    const sel=$('viz-mode'); sel.value=modes[parseInt(e.key)-1]; switchViz(sel.value);
+  }
+});
+
+/* Autopsy */
+function showAutopsy(alert){
+  $('autopsy-placeholder').classList.add('hidden');
+  $('autopsy-detail').classList.remove('hidden');
+  $('autopsy-ts').textContent = alert.timestamp?alert.timestamp.replace('T',' ').replace('Z',' UTC'):'—';
+  $('d-src-ip').textContent=alert.source_ip??'—';
+  $('d-dst-ip').textContent=alert.dest_ip??'—';
+  $('d-port').textContent=formatPort(alert.dest_port);
+  const xai=alert.xai_explanation??{};
+  const bp=xai.base_model_probability;
+  $('d-base').textContent=bp!=null?(parseFloat(bp)*100).toFixed(2)+'%':'—';
+  updateGauge(parseFloat(alert.confidence_score??0));
+  generateNarrative(alert);
+  renderProfileGrid(xai.full_feature_profile??{});
+  $('profile-grid').classList.add('hidden');
+  $('profile-chevron').textContent='▶';
+  $('profile-badge').textContent='collapsed';
+  renderCurrentViz(alert);
+}
+
+/* Narrative */
+/* Mathematical Expert System (Weighted SHAP Scoring) */
+function generateNarrative(alert){
+  const box = $('narrative-box');
+  const conf = parseFloat(alert.confidence_score ?? 0);
+  const xai = alert.xai_explanation ?? {};
+  const drv = xai.top_3_drivers ?? [];
+  const port = formatPort(alert.dest_port);
+  const src = alert.source_ip ?? 'unknown';
+  
+  if(!drv.length){ box.className=''; box.textContent='Insufficient SHAP data to generate narrative.'; return; }
+  
+  const top = drv[0];
+  const top2 = drv[1];
+  const sev = conf >= 95 ? 'Critical' : conf >= 88 ? 'High' : 'Medium';
+  box.className = 'threat';
+
+  // 1. Build the base facts
+  let text = `<strong style="color:var(--red);">[${sev} Threat]</strong> Flow from <strong>${escapeHtml(src)}</strong>`;
+  if (port !== '—') text += ` targeting port <strong style="color:var(--accent);">${escapeHtml(port)}</strong>`;
+  text += ` flagged with <strong>${conf.toFixed(1)}%</strong> confidence. `;
+  text += `Primary driver: <strong>${escapeHtml(top.feature)}</strong> (SHAP: ${escapeHtml(top.shap_impact)}). `;
+
+  // We define "Attack Vectors". The numbers represent how strongly a feature correlates to an attack (0.0 to 1.0)
+  // 2. V4 MATHEMATICAL SCORING ENGINE (Updated for Claude's Features)
+  const attackSignatures = {
+      "SYN Flood / DoS": {
+          "flow packets/s": 1.0, 
+          "init_win_bytes_forward": 0.8,
+          "total fwd packets": 0.5
+      },
+      "Web Exploit / Payload Injection": {
+          "fwd packet length max": 1.0, 
+          "total length of fwd packets": 0.9,
+          "packet length variance": 0.7
+      },
+      "Active Reconnaissance / Port Scan": {
+          "destination port": 1.0, 
+          "flow iat max": 0.9,    // Claude's new discriminative feature
+          "flow iat mean": 0.7, 
+          "flow duration": 0.5
+      },
+      "Data Exfiltration / C2 Beaconing": {
+          "bwd packets/s": 0.9, 
+          "total length of bwd packets": 1.0
+      }
+  };
+
+  // Filter to ONLY look at features pushing towards an attack
+  let attackDrivers = drv.filter(d => parseFloat(d.shap_impact) > 0);
+  
+  let bestAttackType = "Anomalous Network Physics (Unknown Signature)";
+  let highestScore = 0.0;
+
+  // Calculate the weighted mathematical score for every attack type
+  for (const [attackName, signature] of Object.entries(attackSignatures)) {
+      let currentScore = 0.0;
+      
+      // For every SHAP driver, multiply its SHAP impact by the signature weight
+      for (const driver of attackDrivers) {
+          let featureName = driver.feature.toLowerCase().trim();
+          let shapValue = parseFloat(driver.shap_impact);
+          
+          // If this feature exists in the current attack signature, add the weighted math to the score
+          for (const [sigFeature, weight] of Object.entries(signature)) {
+              if (featureName.includes(sigFeature)) {
+                  currentScore += (shapValue * weight);
+              }
+          }
+      }
+      
+      // Keep track of the highest scoring attack
+      if (currentScore > highestScore) {
+          highestScore = currentScore;
+          bestAttackType = attackName;
+      }
+  }
+
+  // 3. Output the mathematically deduced narrative
+  let analysis = "";
+  if (highestScore > 0) {
+      analysis = `Mathematical SHAP vector alignment indicates a high probability of <strong>${bestAttackType}</strong> (Signature Match Score: ${highestScore.toFixed(2)}).`;
+  } else {
+      analysis = `Feature combination indicates anomalous network physics deviating heavily from baseline traffic.`;
+  }
+
+  box.innerHTML = text + analysis;
+}
+
+/* Gauge */
+function updateGauge(conf){
+  const ARC=Math.PI*80, f=(Math.min(conf,100)/100)*ARC;
+  $('gauge-arc').setAttribute('stroke-dasharray',`${f.toFixed(2)} ${(ARC-f).toFixed(2)}`);
+  $('gauge-arc').setAttribute('stroke',gaugeColor(conf));
+  $('gauge-score').textContent=conf.toFixed(1)+'%';
+  $('gauge-score').setAttribute('fill',gaugeColor(conf));
+}
+
+/* Viz */
+const VIZ_IDS=['bars','waterfall','radar','force','heatmap'];
+function switchViz(mode){
+  currentViz=mode;
+  VIZ_IDS.forEach(id=>$(`view-${id}`).classList.add('hidden'));
+  $(`view-${mode}`).classList.remove('hidden');
+  if(currentAlert) renderCurrentViz(currentAlert);
+}
+function renderCurrentViz(alert){
+  const xai=alert.xai_explanation??{};
+  const drv=xai.top_3_drivers??[];
+  const prof=xai.full_feature_profile??{};
+  const conf=parseFloat(alert.confidence_score??0);
+  const base=parseFloat(xai.base_model_probability??0)*100;
+  VIZ_IDS.forEach(id=>$(`view-${id}`).classList.add('hidden'));
+  $(`view-${currentViz}`).classList.remove('hidden');
+  if(currentViz==='bars')      renderBars(drv);
+  if(currentViz==='waterfall') renderWaterfall(drv,base,conf);
+  if(currentViz==='radar')     renderRadar(prof,drv);
+  if(currentViz==='force')     renderForce(drv,base,conf);
+  if(currentViz==='heatmap')   renderHeatmap(prof);
+}
+
+/* VIZ1 */
+function renderBars(drv){
+  if(!drv.length){$('shap-bars').innerHTML='<p style="font-size:0.72rem;color:var(--text-3);text-align:center;padding:24px;">No SHAP data.</p>';return;}
+  const maxAbs=Math.max(...drv.map(d=>Math.abs(parseFloat(d.shap_impact||0))),0.001);
+  $('shap-bars').innerHTML=drv.map((d,i)=>{
+    const imp=parseFloat(d.shap_impact||0),abs=Math.abs(imp),isA=imp>=0;
+    const pct=(abs/maxAbs)*46;
+    const sty=isA?`left:50%;width:${pct.toFixed(2)}%`:`left:calc(50% - ${pct.toFixed(2)}%);width:${pct.toFixed(2)}%`;
+    const col=isA?'color:var(--red)':'color:var(--green)';
+    const bdg=isA?`<span style="font-size:0.5rem;padding:2px 6px;background:var(--red-lt);color:var(--red);border-radius:4px;font-weight:700;border:1px solid var(--red-mid);">ATTACK</span>`
+                 :`<span style="font-size:0.5rem;padding:2px 6px;background:var(--green-lt);color:var(--green);border-radius:4px;font-weight:700;border:1px solid #bbf7d0;">NORMAL</span>`;
+    return`<div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:0.78rem;color:var(--text-1);font-weight:600;">${['①','②','③'][i]??''} ${escapeHtml(d.feature)}</span>
+        <div style="display:flex;align-items:center;gap:8px;">${bdg}<span style="font-family:'DM Mono',monospace;font-size:0.74rem;font-weight:600;${col}">${escapeHtml(d.shap_impact)}</span></div>
+      </div>
+      <div class="bar-track"><div class="bar-fill ${isA?'bar-attack':'bar-normal'}" style="${sty}"></div><div class="center-line"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:0.55rem;color:var(--text-3);margin-top:4px;font-family:'DM Mono',monospace;"><span>← NORMAL</span><span>ATTACK →</span></div>
+    </div>`;
+  }).join('');
+}
+
+/* VIZ2 */
+function renderWaterfall(drv,base,conf){
+  const c=$('waterfall-chart');
+  if(!drv.length){c.innerHTML='<p style="font-size:0.72rem;color:var(--text-3);text-align:center;padding:24px;">No SHAP data.</p>';return;}
+  const items=[{label:'Base probability',value:base,running:base,isBase:true}];
+  let run=base;
+  drv.forEach(d=>{ const delta=parseFloat(d.shap_impact||0)*100, prev=run; run=Math.min(Math.max(run+delta,0),100); items.push({label:d.feature,value:delta,running:run,prev,isBase:false}); });
+  items.push({label:'Final confidence',value:conf,running:conf,isFinal:true});
+  c.innerHTML=items.map(item=>{
+    if(item.isBase){const w=(item.value/100*68).toFixed(2);return`<div class="wf-row"><span class="wf-label" style="color:var(--text-3);font-style:italic;">Base probability</span><div class="wf-track"><div class="wf-bar" style="left:0;width:${w}%;background:#fde68a;"></div></div><span class="wf-val" style="color:var(--amber);">${item.value.toFixed(1)}%</span></div>`;}
+    if(item.isFinal){const w=(item.value/100*68).toFixed(2);return`<div class="wf-row" style="border-top:1.5px solid var(--border);margin-top:6px;padding-top:6px;"><span class="wf-label" style="font-weight:600;color:var(--text-1);">Final confidence</span><div class="wf-track"><div class="wf-bar" style="left:0;width:${w}%;background:${gaugeColor(item.value)};"></div></div><span class="wf-val" style="color:${gaugeColor(item.value)};font-weight:700;">${item.value.toFixed(1)}%</span></div>`;}
+    const isA=item.value>=0, pl=(item.prev/100*68).toFixed(2), bw=(Math.abs(item.value)/100*68).toFixed(2), left=isA?pl:((item.running/100*68)).toFixed(2);
+    const bg=isA?'#fca5a5':'#86efac', col=isA?'var(--red)':'var(--green)', sign=isA?'+':'';
+    return`<div class="wf-row"><span class="wf-label">${escapeHtml(item.label)}</span><div class="wf-track"><div style="position:absolute;left:${pl}%;top:0;bottom:0;width:1px;background:var(--border);"></div><div class="wf-bar" style="left:${left}%;width:${bw}%;background:${bg};"></div></div><span class="wf-val" style="color:${col};">${sign}${item.value.toFixed(1)}%</span></div>`;
+  }).join('');
+}
+
+/* VIZ3 */
+function renderRadar(profile,drivers){
+  if(radarChartVal){radarChartVal.destroy();radarChartVal=null;}
+  if(radarChartImp){radarChartImp.destroy();radarChartImp=null;}
+  const entries=Object.entries(profile);
+  if(!entries.length) return;
+  const sel=entries.slice(0,7);
+  const labels=sel.map(([k])=>{ const p=k.trim().split(' '); return p.length>2?[p.slice(0,2).join(' '),p.slice(2).join(' ')]:p; });
+  const raws=sel.map(([,v])=>Math.abs(parseFloat(v.value||0))), maxRaw=Math.max(...raws,1);
+  const normV=raws.map(v=>parseFloat((v/maxRaw).toFixed(3)));
+  const shapV=sel.map(([,v])=>parseFloat(((parseFloat(v.shap_impact||0)+2)/4).toFixed(3)));
+  const opts=()=>({ responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#0d1b2a',titleFont:{family:'DM Mono',size:10},bodyFont:{family:'DM Mono',size:10}} },
+    scales:{ r:{ min:0,max:1, ticks:{display:false}, grid:{color:'var(--border)',lineWidth:1}, angleLines:{color:'var(--border)'}, pointLabels:{font:{family:'DM Mono',size:8,weight:'500'},color:'var(--text-3)',padding:8} } }
+  });
+  radarChartVal=new Chart($('radar-canvas-value'),{ type:'radar', data:{labels,datasets:[{label:'Raw Value',data:normV,borderColor:'#1d4ed8',backgroundColor:'rgba(29,78,216,0.12)',borderWidth:2,pointBackgroundColor:'#1d4ed8',pointBorderColor:'#fff',pointRadius:4}]}, options:opts() });
+  radarChartImp=new Chart($('radar-canvas-impact'),{ type:'radar', data:{labels,datasets:[{label:'SHAP Impact',data:shapV,borderColor:'#dc2626',backgroundColor:'rgba(220,38,38,0.12)',borderWidth:2,borderDash:[4,3],pointBackgroundColor:'#dc2626',pointBorderColor:'#fff',pointRadius:4}]}, options:opts() });
+}
+
+/* VIZ4 */
+function renderForce(drv,base,conf){
+  const c=$('force-chart');
+  if(!drv.length){c.innerHTML='<p style="font-size:0.72rem;color:var(--text-3);text-align:center;padding:24px;">No SHAP data.</p>';return;}
+  const attacks=drv.filter(d=>parseFloat(d.shap_impact||0)>=0), normals=drv.filter(d=>parseFloat(d.shap_impact||0)<0);
+  const total=drv.reduce((s,d)=>s+Math.abs(parseFloat(d.shap_impact||0)),0.001);
+  const seg=(d,isA)=>{ const pct=(Math.abs(parseFloat(d.shap_impact||0))/total*42).toFixed(2),bg=isA?'#fee2e2':'#dcfce7',bd=isA?'#fca5a5':'#86efac',tc=isA?'#991b1b':'#166534',lbl=d.feature.trim().split(' ').slice(-1)[0]; return`<div class="force-seg" style="width:${pct}%;background:${bg};border-${isA?'left':'right'}:1px solid ${bd};"><span style="color:${tc};">${escapeHtml(lbl)}</span></div>`; };
+  c.innerHTML=`<div style="padding:0 4px;">
+    <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-bottom:8px;">
+      <span style="color:var(--green);font-weight:600;">← Normal ${(100-conf).toFixed(1)}%</span>
+      <span style="color:var(--text-3);font-family:'DM Mono',monospace;font-size:0.62rem;">base ${base.toFixed(1)}%</span>
+      <span style="color:var(--red);font-weight:600;">Attack ${conf.toFixed(1)}% →</span>
+    </div>
+    <div style="display:flex;height:38px;border-radius:8px;overflow:hidden;border:1.5px solid var(--border);">
+      ${normals.map(d=>seg(d,false)).join('')}
+      <div style="flex:1;background:var(--amber-lt);display:flex;align-items:center;justify-content:center;border-left:1px solid #fde68a;border-right:1px solid #fde68a;min-width:34px;"><span style="font-size:9px;color:var(--amber);font-weight:700;font-family:'DM Mono',monospace;">Base</span></div>
+      ${attacks.map(d=>seg(d,true)).join('')}
+    </div>
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:5px;">
+      <div style="font-size:0.56rem;color:var(--text-3);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:2px;">Feature Breakdown</div>
+      ${drv.map(d=>{ const v=parseFloat(d.shap_impact||0),iA=v>=0,col=iA?'var(--red)':'var(--green)',bg=iA?'var(--red-lt)':'var(--green-lt)',bd=iA?'#fca5a5':'#bbf7d0';
+        return`<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;background:${bg};border:1px solid ${bd};border-radius:7px;"><span style="flex:1;font-size:0.71rem;color:var(--text-1);font-weight:500;">${escapeHtml(d.feature)}</span><span style="font-family:'DM Mono',monospace;font-size:0.71rem;font-weight:700;color:${col};">${escapeHtml(d.shap_impact)}</span><span style="font-size:0.64rem;color:${col};">${iA?'→ Attack':'← Normal'}</span></div>`; }).join('')}
+    </div>
+  </div>`;
+}
+
+/* VIZ5 */
+function renderHeatmap(profile){
+  const c=$('heatmap-chart'), entries=Object.entries(profile);
+  if(!entries.length){c.innerHTML='<p style="font-size:0.72rem;color:var(--text-3);text-align:center;padding:24px;">No profile data.</p>';return;}
+  function cellColor(s){ const v=parseFloat(s||0),it=Math.min(Math.abs(v)/2,1); return v>0?{bg:`rgb(254,${Math.round(226-it*150)},${Math.round(226-it*200)})`,txt:it>0.5?'#991b1b':'#dc2626'}:{bg:`rgb(${Math.round(240-it*160)},253,${Math.round(244-it*80)})`,txt:it>0.5?'#065f46':'#059669'}; }
+  c.innerHTML=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+    ${entries.map(([feat,info])=>{ const{bg,txt}=cellColor(info.shap_impact||'0'); return`<div class="hm-cell" style="background:${bg};"><div class="hm-label" title="${escapeHtml(feat)}">${escapeHtml(feat.trim())}</div><div style="font-size:0.78rem;font-weight:700;color:${txt};font-family:'DM Mono',monospace;">${parseFloat(info.value||0).toFixed(2)}</div><div style="font-size:0.6rem;color:${txt};font-family:'DM Mono',monospace;">${escapeHtml(String(info.shap_impact||'—'))}</div></div>`; }).join('')}
+  </div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:0.6rem;color:var(--text-3);">
+    <div style="width:60px;height:8px;border-radius:3px;background:linear-gradient(to right,#bbf7d0,#fecaca);"></div>Normal ← intensity → Attack
+  </div>`;
+}
+
+/* Profile */
+function renderProfileGrid(profile){
+  const grid=$('profile-grid'), ents=Object.entries(profile);
+  if(!ents.length){grid.innerHTML='<p style="font-size:0.7rem;color:var(--text-3);padding:8px;">No data.</p>';return;}
+  grid.innerHTML=ents.map(([feat,info])=>{ const val=parseFloat(info.value||0).toFixed(2),imp=String(info.shap_impact||'—'),isP=imp.startsWith('+'),col=imp==='—'?'var(--text-3)':isP?'var(--red)':'var(--green)'; return`<div class="profile-row"><span style="color:var(--text-2);font-size:0.63rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:185px;" title="${escapeHtml(feat)}">${escapeHtml(feat.trim())}</span><div style="display:flex;gap:12px;font-family:'DM Mono',monospace;flex-shrink:0;"><span style="color:var(--text-1);font-size:0.63rem;font-weight:500;">${val}</span><span style="font-size:0.63rem;font-weight:700;color:${col};width:70px;text-align:right;">${escapeHtml(imp)}</span></div></div>`; }).join('');
+}
+
+function toggleProfile(){
+  const g=$('profile-grid'), h=g.classList.toggle('hidden');
+  $('profile-chevron').textContent=h?'▶':'▼';
+  $('profile-badge').textContent=h?'collapsed':'expanded';
+}
+
+/* Export */
+function exportReport(){
+  if(!currentAlert){alert('Select an alert first.');return;}
+  const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),alert:currentAlert,narrative:$('narrative-box').innerText,session_stats:{total:$('stat-total').textContent,peak_conf:$('stat-conf').textContent,top_port:$('stat-port').textContent}},null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=`xai_report_${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+}
+
+/* Clear */
+function clearFeed(){
+  if(!confirm('Clear all alerts from the feed? Log file is not affected.')) return;
+  $('alert-tbody').innerHTML=''; seenKeys.clear(); alertsArray=[]; selectedIdx=-1; currentAlert=null; selectedKey=null;
+  sparkData=new Array(20).fill(0); renderSparkline(0);
+  $('empty-state').classList.remove('hidden'); $('feed-count').textContent='0 events';
+  $('autopsy-placeholder').classList.remove('hidden'); $('autopsy-detail').classList.add('hidden');
+}
+
+/* Cases */
+async function loadCases(){
+  try{
+    const res=await fetch('/api/cases'); if(!res.ok) throw new Error();
+    const data=await res.json(), sel=$('caseSelect');
+    sel.innerHTML='';
+    if(!data.cases.length){sel.innerHTML='<option value="">No log files found</option>';return;}
+    data.cases.forEach(c=>{ const o=document.createElement('option'); o.value=o.textContent=c; sel.appendChild(o); });
+    sel.addEventListener('change',()=>{ clearFeed(); poll(); });
+  }catch{ $('caseSelect').innerHTML='<option value="">Error connecting to server</option>'; }
+}
+
+/* Poll */
+async function poll(){
+  try{
+    const sel=$('caseSelect'), name=sel?sel.value:'';
+    const res=await fetch('/api/alerts'+(name?`?case=${encodeURIComponent(name)}`:''));
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    if(data.current_case&&sel&&sel.value!==data.current_case) sel.value=data.current_case;
+    updateStats(data.stats??{}); updateTable(data.alerts??[]);
+    $('poll-indicator').style.color='var(--text-3)';
+  }catch(err){
+    $('poll-indicator').textContent='⚠ offline'; $('poll-indicator').style.color='var(--red)';
+  }
+}
+
+loadCases().then(()=>{ poll(); setInterval(poll,2000); });
+</script>
+</body>
+</html>
