@@ -34,46 +34,39 @@ class IDSModelV4:
 
     def predict(self, feature_dict, src_ip="Unknown", dst_ip="Unknown", pkt_time="Unknown"):
         """
-        Enhanced prediction with optimized thresholds for port scan detection.
-        
-        Args:
-            feature_dict: Dictionary with 12 flow features
-            src_ip, dst_ip, pkt_time: Metadata for logging
-            
-        Returns:
-            (verdict: bool, confidence: float, metadata: dict)
+        Enhanced prediction using raw probability thresholds.
         """
         try:
-            # Build feature vector in correct order
             df = pd.DataFrame([feature_dict], columns=self.features)
+            df.fillna(0, inplace=True)
         except Exception as e:
             print(f"[-] Feature extraction error: {e}")
             return False, 0.0, None 
 
-        # Get prediction and probability
-        prediction = self.model.predict(df)[0]
+        # Get raw probabilities [Benign_Prob, Attack_Prob]
         probabilities = self.model.predict_proba(df)[0]
-        confidence = probabilities.max() * 100
+        
+        # Isolate the Attack Probability and convert to percentage
+        attack_prob = probabilities[1] * 100
         
         # Extract metadata
         duration = float(feature_dict.get(' Flow Duration', 0))
         port = float(feature_dict.get(' Destination Port', 0))
         fwd_pkts = float(feature_dict.get(' Total Fwd Packets', 0))
         bwd_pkts = float(feature_dict.get(' Total Bwd Packets', 0))
-        total_pkts = fwd_pkts + bwd_pkts
 
-        # Port scan specific guardrails
-        if prediction == 1:  # Model says attack
-            # Require minimum confidence
-            if confidence < 80.0:
-                return False, confidence, None
+        # Since median normal traffic is 0.09%, 35% safely isolates the 1-packet scans!
+        if attack_prob >= 35.0:  
             
-            # Filter out benign high-port traffic
-            if port >= 49152 and total_pkts < 2:
-                return False, confidence, None
-            
+            # --- NEW FALSE POSITIVE GUARDRAIL ---
+            # Suppress low-confidence alerts on common, noisy background ports (DNS, HTTP, HTTPS)
+            if attack_prob < 75.0 and port in [53, 80, 443]:
+                return False, attack_prob, None
+            admin_ports = [22, 3389, 5900]
+            if attack_prob < 75.0 and port in admin_ports and src_ip.startswith("192.168.10."):
+                return False, attack_prob, None
             # Attack verified - return alert
-            return True, confidence, {
+            return True, attack_prob, {
                 'port': port,
                 'duration_us': duration,
                 'fwd_packets': fwd_pkts,
@@ -83,7 +76,7 @@ class IDSModelV4:
                 'timestamp': pkt_time
             }
             
-        return False, confidence, None
+        return False, attack_prob, None
 
 if __name__ == "__main__":
     print("[*] Enhanced IDS V4 module loaded successfully")

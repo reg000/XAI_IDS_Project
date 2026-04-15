@@ -100,5 +100,6 @@ def analyze_pcap(pcap_path):
     print(f"[+] Total Normal Flows Processed: {normal_count}")
 
 if __name__ == "__main__":
-    pcap_file = "data/bigNormal.pcapng"  # Default PCAP for V4 Sandbox testing
+    #pcap_file = "data/bigNormal.pcapng"  # PCAP for testing no attacks
+    pcap_file = "data/PortScanPcapFridayWorkingHrs.pcapng"  # PCAP with port scans
     analyze_pcap(pcap_file)

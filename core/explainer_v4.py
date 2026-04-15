@@ -50,22 +50,24 @@ class XAIEngineV4:
     def explain_prediction(self, df, confidence, port, src_ip, dst_ip, pkt_time):
         """
         Generate SHAP-based explanation for a detected attack.
-        
-        Returns:
-            JSON-serializable explanation dictionary
         """
         try:
             if self.explainer is not None:
                 # Calculate SHAP values
                 shap_values = self.explainer.shap_values(df)
-                if isinstance(shap_values, list):
-                    shap_vals = shap_values[1]  # Attack class
-                else:
-                    shap_vals = shap_values
                 
-                base_value = float(self.explainer.expected_value)
-                if isinstance(base_value, (list, tuple)):
-                    base_value = float(base_value[1])
+                # 1. FIX: Grab the 1D array for the single packet (index 0)
+                if isinstance(shap_values, list):
+                    shap_vals = shap_values[1][0]  # Attack class, first row
+                else:
+                    shap_vals = shap_values[0]     # First row
+                
+                # 2. FIX: Safely extract the base value BEFORE converting to float
+                expected_val = self.explainer.expected_value
+                if isinstance(expected_val, (list, tuple, np.ndarray)):
+                    base_value = float(expected_val[1] if len(expected_val) > 1 else expected_val[0])
+                else:
+                    base_value = float(expected_val)
             else:
                 # Fallback: use zeros if SHAP unavailable
                 shap_vals = np.zeros(len(self.feature_names))
@@ -74,22 +76,34 @@ class XAIEngineV4:
             # Build explanation
             impacts = []
             for i, feature_name in enumerate(self.feature_names):
-                value = float(df.iloc[0, i])
-                impact = float(shap_vals[i])
+                
+                # ── FORMAT FIX: Round raw value and SHAP impact to 3 decimals ──
+                value = round(float(df.iloc[0, i]), 3)
+                impact = round(float(shap_vals[i]), 3)
+                
                 impacts.append({
                     "feature": feature_name,
                     "value": value,
                     "shap_impact": impact
                 })
             
-            # Sort by magnitude
+            # Sort all 16 features by magnitude (largest impact first)
             impacts.sort(key=lambda x: abs(x["shap_impact"]), reverse=True)
-            top_3 = impacts[:3]
+            top_3 = impacts[:3] 
+            
+            # FORMAT FIX: Convert the list into a Dictionary specifically for the UI charts
+            full_profile = {
+                item["feature"]: {
+                    "value": item["value"], 
+                    "shap_impact": item["shap_impact"]
+                }
+                for item in impacts
+            }
             
             return {
                 "base_probability": round(base_value, 4),
                 "top_3_drivers": top_3,
-                "all_features": impacts
+                "full_feature_profile": full_profile  # <--- Matches your HTML exactly!
             }
             
         except Exception as e:

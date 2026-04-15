@@ -1,6 +1,10 @@
 .\venv\Scripts\Activate (activate virtual env)
 ---------------------------------------------------------------------------------------
-logs: python test_pcap.py | Tee-Object -FilePath "logs/Friday_Full_Analysis_March03.txt
+test logs: python test_pcap.py | Tee-Object -FilePath "logs/Friday_Full_Analysis_March03.txt
 ---------------------------------------------------------------------------------------
 Behaviour check for ai: python check_importance.py
+---------------------------------------------------------------------------------------
+Starting dashboard: python dashboard/app_v4.py 
+---------------------------------------------------------------------------------------
+Starting pcap Analysis with jsonl: python test_pcap_v4.py
 ---------------------------------------------------------------------------------------
