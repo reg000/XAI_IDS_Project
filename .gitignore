@@ -7,3 +7,4 @@ models/*.joblib
 models/*.pkl
 plots/*.png
 catboost_info/
+venv_bkup/
